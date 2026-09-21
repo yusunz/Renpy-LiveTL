@@ -36,10 +36,10 @@ init -100 python:
     livetl_hotkey = "K_F8"
 
     # 面板字体。
-    #   None      —— 跟随游戏自身的字体
+    #   "" / None —— 跟随游戏自身的字体
     #   "xxx.ttf" —— 使用指定字体文件
-    # 默认用插件自带的中文字体（MiSans），保证面板一定能显示中文。
-    livetl_font = "livetl/fonts/MiSans-Regular.otf"
+    # 字体需要自备，把文件放进 livetl/fonts/ 后在这里填路径，见 README。
+    livetl_font = ""
 
     # ---------------------------------------------------------------------
     # 字体替换
@@ -50,12 +50,12 @@ init -100 python:
     livetl_replace_fonts = True
 
     # 替换用的字体文件（相对游戏目录）。
-    # 说明：用静态字重的 otf/ttf 文件。MiSans 的可变字体（VF）在 Ren'Py 里
-    # 不会被正常渲染（会显示成方块），所以这里默认用 Regular 字重。
-    livetl_font_file = "livetl/fonts/MiSans-Regular.otf"
+    # 留空 = 不做字体替换，游戏原本的字体照常使用。
+    # 中文字体需要自备，见 README「字体」一节。
+    livetl_font_file = ""
 
-    # 粗体用的字体文件；None 表示让 Ren'Py 自己处理加粗。
-    livetl_font_file_bold = "livetl/fonts/MiSans-Bold.otf"
+    # 粗体用的字体文件；留空表示让 Ren'Py 自己处理加粗。
+    livetl_font_file_bold = ""
 
     # 是否额外扫描游戏脚本，把脚本里写到的字体也纳入替换列表。
     # 关掉的话只替换插件自己知道的字体（一般不需要关）。

@@ -95,19 +95,34 @@
 | `livetl_show_id` | `False` | 显示当前句的翻译标识符（排查问题用） |
 | `livetl_debug` | `True` | 是否写 `game/livetl.log` |
 
-## 字体替换
+## 字体（需要自备）
 
-汉化后原文的字体往往不含中文字形（显示成方块）。插件**自带 MiSans 字体**，
-启动时会扫描游戏脚本里用到的字体文件，并通过 Ren'Py 自带的
-`config.font_replacement_map` 把它们统一替换成 MiSans：
+汉化后原文的字体往往不含中文字形（显示成方块）。插件可以扫描游戏脚本里用到的
+字体，并通过 Ren'Py 自带的 `config.font_replacement_map` 把它们统一替换成
+**你自备的中文字体**。
 
-| 用途 | 字体 |
-| --- | --- |
-| 常规 | `livetl/fonts/MiSans-Regular.otf` |
-| 粗体 | `livetl/fonts/MiSans-Bold.otf` |
+**本仓库不附带任何字体文件**——常见中文字体（例如小米 MiSans）的许可协议
+禁止把字体文件随作品再分发，所以字体需要你自己准备。
 
-> **注意**：请使用**静态字重**（`.otf` / `.ttf`）。
-> MiSans 的可变字体（`MiSans VF.ttf`）在 Ren'Py 里不会渲染，中文会显示成方块。
+1. 下载一款支持中文、且允许再分发的字体，推荐：
+   - **思源黑体**（SIL OFL 许可，可自由分发、修改）：<https://github.com/adobe-fonts/source-han-sans/releases>
+   - **Noto Sans SC**：<https://fonts.google.com/noto/specimen/Noto+Sans+SC>
+   - 或任何你手头的中文字体
+2. 把字体文件放进 `livetl/fonts/`（该目录下的字体已被 `.gitignore` 排除）
+3. 在 `livetl/livetl_config.rpy` 里填上路径：
+
+   ```renpy
+   livetl_replace_fonts = True
+   livetl_font_file      = "livetl/fonts/SourceHanSansSC-Regular.otf"
+   livetl_font_file_bold = "livetl/fonts/SourceHanSansSC-Bold.otf"
+   ```
+
+   留空（默认）表示**不做字体替换**，游戏原本的字体照常使用。
+
+> **注意**：请用**静态字重**（`.otf` / `.ttf`）。
+> 可变字体（文件名常带 `VF`）在 Ren'Py 里不会渲染，中文会显示成方块。
+> 另外 Ren'Py 虽然支持 `.ttc` / `.otc` 字体集合，但只能用集合里的**第一个**字体，
+> 所以不推荐用 Super OTC 这类合集。
 
 ## 工作原理
 
@@ -154,7 +169,7 @@
 | 内容 | 许可 / 版权 |
 | --- | --- |
 | 本项目代码 | MIT，见 `LICENSE` |
-| MiSans 字体 | 版权归小米科技所有，协议见 `licenses/MiSans-LICENSE.pdf` |
 | 借鉴项目（Renpy_fonts_replacement） | MIT，见 `licenses/Renpy_fonts_replacement-LICENSE.txt` |
+| 字体 | **不随仓库分发**，由使用者自备（见「字体（需要自备）」一节） |
 
 **关于 Ren'Py 本身**：本项目是第三方插件，**不包含也不分发 Ren'Py 引擎**

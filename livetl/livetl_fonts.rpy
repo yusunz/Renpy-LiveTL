@@ -48,11 +48,20 @@ init -50 python:
 
     def livetl_apply_font_replacement():
         """把游戏用到的字体全部映射到插件自带的中文字体。"""
-        if not livetl_replace_fonts:
+        if not livetl_replace_fonts or not livetl_font_file:
             return 0
 
         regular = livetl_font_file
         bold = livetl_font_file_bold or regular
+
+        # 字体文件不存在就跳过（不然游戏会因为找不到字体起不来）
+        if not renpy.loadable(regular):
+            livetl_log("font replacement skipped: {!r} not found".format(regular))
+            return 0
+
+        if not renpy.loadable(bold):
+            bold = regular
+
         fonts = livetl_collect_fonts()
 
         count = 0

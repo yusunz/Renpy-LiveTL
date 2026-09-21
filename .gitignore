@@ -7,6 +7,10 @@
 livetl.log
 livetl_reload.log
 
+# 自备字体（不随仓库分发，见 README）
+livetl/fonts/*
+!livetl/fonts/README.md
+
 # 系统与编辑器
 Thumbs.db
 .DS_Store
