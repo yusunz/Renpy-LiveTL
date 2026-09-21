@@ -1,0 +1,13 @@
+# Ren'Py 编译产物
+*.rpyc
+*.rpymc
+*.rpy.bak
+
+# 运行日志（插件调试输出）
+livetl.log
+livetl_reload.log
+
+# 系统与编辑器
+Thumbs.db
+.DS_Store
+.vscode/
