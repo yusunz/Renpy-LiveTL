@@ -52,6 +52,37 @@ init -50 python:
         except Exception:
             pass
 
+    def livetl_log_init():
+        """开始一次新的日志：清空旧内容，写下版本信息。
+
+        每次启动游戏都从零开始写，避免日志无限增长；
+        热重载会让 init 重跑，所以用 session 做标记，
+        保证同一次运行只清一次（重载前的记录不会丢）。
+        """
+        if not livetl_debug:
+            return
+
+        if renpy.session.get("livetl_log_started"):
+            return
+
+        renpy.session["livetl_log_started"] = True
+
+        try:
+            path = os.path.join(renpy.config.gamedir, "livetl.log")
+
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("LiveTL {} | {} | game: {}\n".format(
+                    livetl_version,
+                    renpy.version_string,
+                    renpy.config.name,
+                ))
+                f.write("-" * 60 + "\n")
+        except Exception:
+            pass
+
+    # 在最早能写文件的时机开好这次运行的日志
+    livetl_log_init()
+
     def livetl_set_status(msg):
         """更新面板上的反馈文字，并记入日志。"""
         store.livetl_status = msg
