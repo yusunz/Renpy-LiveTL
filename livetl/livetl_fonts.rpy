@@ -8,8 +8,6 @@
 # 做法参考 KittyArk/Renpy_fonts_replacement（MIT 许可）。
 #   原项目：https://github.com/KittyArk/Renpy_fonts_replacement
 #   许可证：licenses/Renpy_fonts_replacement-LICENSE.txt
-#
-# MiSans 字体版权归小米科技所有，许可协议见 licenses/MiSans-LICENSE.pdf。
 # =============================================================================
 
 init -50 python:
