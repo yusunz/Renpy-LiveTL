@@ -11,6 +11,9 @@ livetl_reload.log
 livetl/fonts/*
 !livetl/fonts/README.md
 
+# 给 AI 助手的工作说明，不纳入版本库
+AGENTS.md
+
 # 系统与编辑器
 Thumbs.db
 .DS_Store
