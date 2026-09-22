@@ -227,9 +227,18 @@ init -50 python:
 
         if source and (source == text):
             livetl_pick_set_active(False)
+
+            # 菜单还开着时别让菜单同步把面板抢回列表：
+            # 否则刚拾到的这句对话立刻被菜单列表顶掉，看起来像"没拾到"。
+            renpy.session["livetl_menu_hold"] = True
+
             store.livetl_mode = "say"
-            livetl_set_status("这是对话文本，已回到对话模式")
-            livetl_sync()
+
+            # 强制刷新：菜单列表刚把面板内容换成菜单项，
+            # 只靠 tid 判断会以为"没变化"而跳过。
+            livetl_sync(force=True)
+
+            livetl_set_status("这是对话文本，已在面板里打开；点【回菜单】回到菜单列表")
             return
 
         # 命中当前菜单里的某一条：直接选中它，面板保持菜单列表

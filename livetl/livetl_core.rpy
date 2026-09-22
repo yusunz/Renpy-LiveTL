@@ -694,8 +694,12 @@ init -50 python:
         if count:
             livetl_set_status("发现 {} 处重复条目，点【设置】→【检查重复】处理".format(count))
 
-    def livetl_sync(tid=None):
-        """刷新面板内容：当前句的原文，以及已有的译文。"""
+    def livetl_sync(tid=None, force=False):
+        """刷新面板内容：当前句的原文，以及已有的译文。
+
+        force 为真时忽略"tid 没变"的短路：菜单列表会把面板内容换成
+        菜单项，这时切回对话必须强制刷新一次。
+        """
         if tid is None:
             tid = livetl_current_id()
 
@@ -703,7 +707,7 @@ init -50 python:
         if store.livetl_mode != "say":
             return
 
-        if tid == livetl_current_tid and store.livetl_current_source:
+        if (not force) and (tid == store.livetl_current_tid) and store.livetl_current_source:
             return
 
         store.livetl_current_kind = "say"
