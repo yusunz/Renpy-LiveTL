@@ -11,9 +11,16 @@ init -100 python:
     # 版本
     # ---------------------------------------------------------------------
 
-    # 插件版本。会写进 game/livetl.log 的开头，
-    # 反馈问题时一眼能看出跑的是哪一版、配的哪个 Ren'Py。
-    livetl_version = "0.1.0"
+    # 插件版本：从同目录的 version.txt 读取，保证版本号只有一个出处。
+    # 发版时改 livetl/version.txt 即可；它也会写进 game/livetl.log 开头。
+    def _livetl_read_version():
+        try:
+            with renpy.file("livetl/version.txt") as f:
+                return f.read().decode("utf-8").strip() or "unknown"
+        except Exception:
+            return "unknown"
+
+    livetl_version = _livetl_read_version()
 
     # ---------------------------------------------------------------------
     # 目标语言
