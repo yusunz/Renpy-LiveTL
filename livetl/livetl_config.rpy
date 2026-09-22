@@ -50,6 +50,9 @@ init -100 python:
     # 面板开关快捷键（Ren'Py 的 keysym 名称，见 config.keymap）。
     livetl_hotkey = "K_F8"
 
+    # 拾取模式快捷键：进入后在画面上点选要翻译的文本。
+    livetl_pick_hotkey = "K_F9"
+
     # 面板字体。
     #   "" / None —— 跟随游戏自身的字体
     #   "xxx.ttf" —— 使用指定字体文件
@@ -83,7 +86,14 @@ init -100 python:
     livetl_panel_width = 680
 
     # 是否显示当前句的翻译标识符（排查问题时有用）。
-    livetl_show_id = False
+    livetl_show_id = True
+
+    # 菜单列表在面板上的最大高度（像素），条目多了之后列表内滚动。
+    livetl_menu_list_height = 260
+
+    # 启动时是否自动检查 tl 目录里的重复字符串条目。
+    # Ren'Py 对同一语言下重复的 old 会直接报错，发现后可在设置界面清理。
+    livetl_dup_check_on_start = True
 
     # 是否把调试信息写入 game/livetl.log（排查问题时打开）。
     livetl_debug = True

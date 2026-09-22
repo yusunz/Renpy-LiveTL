@@ -33,6 +33,11 @@ init -20 python:
         每次启动游戏都先显示一次，让译者确认目标语言与
         "没翻过的句子怎么显示"；点「开始翻译」之后才切到翻译界面。
         """
+        # 体检界面要能盖住设置界面：否则在设置界面点【检查重复】
+        # 只会切换状态，界面看起来毫无反应。
+        if store.livetl_mode == "dup":
+            return False
+
         return bool(livetl_setup_pending) or (bool(livetl_ask_language) and not persistent.livetl_language)
 
     def livetl_confirm_language():

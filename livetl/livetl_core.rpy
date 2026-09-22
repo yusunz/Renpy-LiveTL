@@ -22,6 +22,22 @@ init -50 python:
     livetl_current_tid = None       # 翻译标识符
     livetl_current_source = ""      # 原文
 
+    # 面板当前的工作模式："say"（跟着台词）/"menu"（菜单条目列表）/"dup"（查重体检）
+    livetl_mode = "say"
+
+    # 当前编辑对象：对话（say）还是字符串条目（string）
+    livetl_current_kind = "say"
+    livetl_current_key = None       # string 模式下这条的原文，也就是翻译条目的 key
+
+    # 当前菜单的条目列表：每项 {"caption", "new", "state", "dup"}
+    livetl_menu_items = []
+    livetl_menu_index = 0
+    livetl_menu_count = 0
+
+    # 重复条目体检的结果：[(key, [(文件, 行号, 译文), ...]), ...]
+    livetl_dup_report = []
+    livetl_dup_check_done = False
+
     # 面板输入框绑定的内容
     livetl_input = ""
 
@@ -87,6 +103,33 @@ init -50 python:
         """更新面板上的反馈文字，并记入日志。"""
         store.livetl_status = msg
         livetl_log("status: " + msg)
+
+    def livetl_restart():
+        """让界面重新渲染一次。
+
+        screen 的变量依赖跟踪看不到函数内部读的 store 变量，
+        所以切换面板形态（设置 / 菜单 / 体检）之后要主动重启一次交互，
+        否则界面会停在旧的分支上。
+        """
+        try:
+            renpy.restart_interaction()
+        except Exception:
+            pass
+
+    def livetl_game_input_active():
+        """游戏自己正在等玩家输入吗。
+
+        判断依据是标准的 input screen（renpy.input() 与 input 语句都走它）。
+        这种时候插件必须让出键盘，否则两个输入框会互相抢焦点，
+        输入法候选与回车都会失效。
+
+        注意：游戏自己写在别的 screen 里的输入框（例如图库的搜索框）
+        检测不到，那种情况下按 F8 手动折叠面板即可。
+        """
+        try:
+            return renpy.get_screen("input") is not None
+        except Exception:
+            return False
 
     def livetl_target_language():
         """当前选定的目标语言（优先取引导时保存的选择）。"""
@@ -323,6 +366,14 @@ init -50 python:
 
         gen.close_tl_files()
 
+        # 官方 write_strings 的判重只看内存里的翻译表：目标语言还没加载时，
+        # 它会把已经写在 tl 里的条目再写一遍，于是同一个 old 出现两次 ——
+        # 而重复条目会让游戏启动直接报错。这里按文件全量查重清理一遍。
+        removed, _backup = livetl_clean_duplicate_strings(language, make_backup=False)
+
+        if removed:
+            livetl_log("generate_templates: 清理了 {} 条重复字符串条目".format(removed))
+
         renpy.game.script.translator.languages.add(language)
 
         livetl_log("generate_templates: scanned {} files for {!r}".format(count, language))
@@ -390,14 +441,273 @@ init -50 python:
     # 面板状态同步
     # ---------------------------------------------------------------------
 
+    def livetl_menu_captions():
+        """当前菜单里的所有文本（原文）。没有菜单时返回 None。
+
+        Ren'Py 的 choice screen 把菜单的标题行和所有选项都以
+        items 的形式传来，每项的 caption 就是源码里的原文
+        （翻译发生在显示层，这里拿到的始终是原文）。
+        """
+        screen = renpy.get_screen("choice")
+
+        if screen is None:
+            return None
+
+        items = screen.scope.get("items")
+
+        if not items:
+            return None
+
+        rv = []
+
+        for entry in items:
+            caption = getattr(entry, "caption", None)
+
+            if isinstance(caption, str) and caption.strip():
+                rv.append(caption)
+
+        return rv or None
+
+    def livetl_menu_entry_of(caption, index=None):
+        """菜单里的一条：原文、已有译文、状态。"""
+        if index is None:
+            index = livetl_scan_string_index()
+
+        places = index.get(caption)
+
+        if places:
+            best = livetl_best_string_entry(caption, places)
+            new = best[2]
+            duplicated = len(places) > 1
+        else:
+            new = ""
+            duplicated = False
+
+        # 生成的模板里未翻译条目的 new 是原文（占位），对译者来说等同于没翻
+        if new == caption:
+            new = ""
+
+        translated = bool(new) and (new != caption)
+
+        return {
+            "caption": caption,
+            "new": new,
+            "state": "已翻" if translated else "未翻",
+            "dup": duplicated,
+        }
+
+    def livetl_menu_fill():
+        """把当前选中项的译文填进输入框。"""
+        items = store.livetl_menu_items
+
+        if not items:
+            store.livetl_current_kind = "say"
+            store.livetl_current_key = None
+            store.livetl_current_source = ""
+            store.livetl_input = ""
+            return
+
+        idx = max(0, min(store.livetl_menu_index, len(items) - 1))
+        store.livetl_menu_index = idx
+
+        item = items[idx]
+        store.livetl_current_kind = "string"
+        store.livetl_current_key = item["caption"]
+        store.livetl_current_source = item["caption"]
+
+        # 只在"刚进入菜单 / 换了选中项"时刷新输入框并请求焦点。
+        #
+        # 这个函数被 livetl_menu_sync 每帧调用，如果每次都写 livetl_input，
+        # 译者打的字会在下一帧被 tl 里的旧值覆盖（表现就是"输入不进去"）；
+        # 每次都 set_focus 也不行 —— 它会重启交互，形成
+        # "restart_interaction() was called 100 times" 的死循环。
+        focus_key = (idx, item["caption"])
+
+        if renpy.session.get("livetl_menu_focus_key") != focus_key:
+            renpy.session["livetl_menu_focus_key"] = focus_key
+
+            store.livetl_input = livetl_input_text(item["new"] or "")
+            store.livetl_focus_pending = True
+
+    def livetl_menu_sync():
+        """菜单出现或换了一个菜单时刷新面板；返回是否处于菜单模式。
+
+        用 caption 列表做指纹：同一个菜单只重建一次列表，
+        避免每次交互都重新扫描 tl 文件。
+        """
+        # 体检界面正在接管面板时不要抢（否则点【检查重复】会被立刻弹回去）
+        if store.livetl_mode == "dup":
+            return False
+
+        captions = livetl_menu_captions()
+
+        if captions is None:
+            renpy.session["livetl_menu_key"] = None
+            renpy.session["livetl_menu_hold"] = False
+            # 菜单关掉之后要重置，否则下次进同一个菜单时
+            # 会因为 key 相同而不刷新输入框
+            renpy.session["livetl_menu_focus_key"] = None
+            store.livetl_mode = "say"
+            store.livetl_menu_items = []
+            store.livetl_menu_index = 0
+            store.livetl_menu_count = 0
+            return False
+
+        key = tuple(captions)
+
+        if key != renpy.session.get("livetl_menu_key"):
+            renpy.session["livetl_menu_key"] = key
+
+            index = livetl_scan_string_index()
+            store.livetl_menu_items = [livetl_menu_entry_of(c, index) for c in captions]
+            store.livetl_menu_index = 0
+
+        store.livetl_menu_count = len(store.livetl_menu_items)
+
+        # 正在编辑拾取到的界面文本时不抢面板（点【回菜单】恢复）
+        if renpy.session.get("livetl_menu_hold"):
+            return True
+
+        store.livetl_mode = "menu"
+        livetl_menu_fill()
+        return True
+
+    def livetl_menu_back():
+        """从单条编辑回到当前菜单的列表。"""
+        if livetl_menu_captions() is None:
+            livetl_set_status("当前没有菜单")
+            return
+
+        renpy.session["livetl_menu_hold"] = False
+        store.livetl_mode = "menu"
+        livetl_menu_sync()
+
+    def livetl_menu_row_text(index):
+        """菜单列表里某一行的显示文本（在这里转义，screen 里不做复杂表达式）。"""
+        items = store.livetl_menu_items
+
+        if not (0 <= index < len(items)):
+            return ""
+
+        item = items[index]
+        note = item["state"]
+
+        if item["dup"]:
+            note += "（重复）"
+
+        return "[{}] {} — {}".format(index + 1, livetl_escape(item["caption"]), note)
+
+    def livetl_menu_select(index):
+        """点击菜单列表里的某一条。"""
+        store.livetl_menu_index = index
+        livetl_menu_fill()
+
+    def livetl_menu_refresh(key=None):
+        """写回之后刷新菜单列表里的状态（不重建整个列表）。"""
+        if key is None:
+            key = store.livetl_current_key
+
+        if not key:
+            return
+
+        index = livetl_scan_string_index(force=True)
+
+        for item in store.livetl_menu_items:
+            if item["caption"] == key:
+                fresh = livetl_menu_entry_of(key, index)
+                item["new"] = fresh["new"]
+                item["state"] = fresh["state"]
+                item["dup"] = fresh["dup"]
+
+    # ---------------------------------------------------------------------
+    # 重复条目体检
+    # ---------------------------------------------------------------------
+
+    def livetl_dup_scan(switch=True):
+        """扫描重复条目；switch 为真时切到体检界面。"""
+        report = livetl_find_duplicate_strings()
+
+        store.livetl_dup_report = sorted(report.items())
+        store.livetl_dup_check_done = True
+
+        if switch:
+            store.livetl_mode = "dup"
+
+        if store.livetl_dup_report:
+            livetl_set_status("发现 {} 处重复条目".format(len(store.livetl_dup_report)))
+        else:
+            livetl_set_status("没有发现重复条目")
+
+        return len(store.livetl_dup_report)
+
+    def livetl_dup_open():
+        """从面板/设置界面进入体检界面。"""
+        store.livetl_visible = True
+        renpy.session["livetl_visible"] = True
+        livetl_dup_scan()
+        livetl_restart()
+
+    def livetl_dup_rescan():
+        """【重新扫描】按钮用。
+
+        注意：作为 action 的函数**不能有返回值** —— 非 None 的返回值会被
+        Ren'Py 当成交互结果，主菜单收到之后会直接结束（表现为"点一下
+        就开始游戏"）。所以这里包一层，把 livetl_dup_scan() 的结果丢掉。
+        """
+        livetl_dup_scan()
+
+    def livetl_dup_close():
+        """退出体检界面，回到对话模式。"""
+        store.livetl_mode = "say"
+        store.livetl_dup_report = []
+        livetl_sync()
+        livetl_restart()
+
+    def livetl_dup_clean():
+        """清理重复条目（保留第一条），清理前自动备份。"""
+        count, backup = livetl_clean_duplicate_strings()
+
+        if count:
+            livetl_set_status("已清理 {} 条重复条目（备份：{}），按重载生效".format(
+                count, os.path.basename(backup) if backup else "无"))
+        else:
+            livetl_set_status("没有需要清理的条目")
+
+        livetl_dup_scan(switch=False)
+
+        if not store.livetl_dup_report:
+            livetl_set_status(livetl_status + "；列表已清空")
+
+    def livetl_dup_check_startup():
+        """启动后的第一次交互里做一次查重，发现重复就提示（不改文件）。"""
+        if (not livetl_dup_check_on_start) or store.livetl_dup_check_done:
+            return
+
+        store.livetl_dup_check_done = True
+
+        try:
+            count = livetl_dup_scan(switch=False)
+        except Exception as e:
+            livetl_log("startup dup check failed: {!r}".format(e))
+            return
+
+        if count:
+            livetl_set_status("发现 {} 处重复条目，点【设置】→【检查重复】处理".format(count))
+
     def livetl_sync(tid=None):
         """刷新面板内容：当前句的原文，以及已有的译文。"""
         if tid is None:
             tid = livetl_current_id()
 
+        # 菜单列表 / 体检界面正在接管面板时不覆盖它的内容
+        if store.livetl_mode != "say":
+            return
+
         if tid == livetl_current_tid and store.livetl_current_source:
             return
 
+        store.livetl_current_kind = "say"
+        store.livetl_current_key = None
         store.livetl_current_tid = tid
         store.livetl_current_source = livetl_find_source(tid) or ""
 
@@ -406,7 +716,7 @@ init -50 python:
         if tid:
             existing = livetl_read_entry(livetl_target_language(), tid)
 
-        store.livetl_input = existing or ""
+        store.livetl_input = livetl_input_text(existing or "")
 
         livetl_log("sync: tid={!r} source={!r} existing={!r}".format(tid, store.livetl_current_source, existing))
 
@@ -419,14 +729,30 @@ init -50 python:
 
     def livetl_submit():
         """把输入框内容写回 tl 文件（不重载）。"""
-        tid = livetl_current_id()
-        if not tid:
-            livetl_set_status("当前没有可翻译的台词")
-            return
+        # 输入框里写的是 \n 这样的转义写法，写回文件前还原成实际字符
+        text = livetl_unescape_input(store.livetl_input)
 
-        text = store.livetl_input
         if not text.strip():
             livetl_set_status("输入框是空的，没有写入")
+            return
+
+        # 菜单 / 界面字符串：写进 translate <语言> strings 条目
+        if (store.livetl_current_kind == "string") and store.livetl_current_key:
+            rel = livetl_write_string_entry(store.livetl_current_key, text)
+
+            if rel:
+                livetl_set_status("已写入 {}（按重载生效）".format(rel))
+                livetl_menu_refresh()
+            else:
+                livetl_set_status("写入失败，详见 livetl.log")
+
+            return
+
+        # 对话：写进对应语句的 translate 块
+        tid = livetl_current_id()
+
+        if not tid:
+            livetl_set_status("当前没有可翻译的台词")
             return
 
         path = livetl_write_entry(livetl_target_language(), tid, text)
@@ -434,6 +760,40 @@ init -50 python:
             livetl_set_status("已写入 " + os.path.basename(path) + "（按重载生效）")
         else:
             livetl_set_status("写入失败，详见 livetl.log")
+
+    def livetl_clear_entry():
+        """清空当前条目。
+
+        * 对话：把译文写成空串。translate 块的结构由源码决定，
+          删不掉也不该删，能清掉的是里面的译文。
+        * 字符串条目：从 tl 里整条删掉。字符串没有"空值"的安全写法
+          （空译文会让菜单项变成不可点的空按钮）。
+        """
+        if (store.livetl_current_kind == "string") and store.livetl_current_key:
+            rel = livetl_delete_string_entry(store.livetl_current_key)
+
+            if rel:
+                store.livetl_input = ""
+                livetl_set_status("已删除字符串条目（{}）".format(rel))
+                livetl_menu_refresh()
+            else:
+                livetl_set_status("没有找到可删除的条目")
+
+            return
+
+        tid = livetl_current_id()
+
+        if not tid:
+            livetl_set_status("当前没有可清空的台词")
+            return
+
+        path = livetl_write_entry(livetl_target_language(), tid, "")
+
+        if path:
+            store.livetl_input = ""
+            livetl_set_status("已清空这一句的译文（按重载生效）")
+        else:
+            livetl_set_status("清空失败，详见 livetl.log")
 
 
 init 10 python:
