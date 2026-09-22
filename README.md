@@ -38,8 +38,8 @@
       livetl_ui.rpy          悬浮面板
       livetl_fonts.rpy       字体替换
       fonts/
-        MiSans-Regular.otf
-        MiSans-Bold.otf
+        SourceHanSansSC-Regular.otf   （自己准备的字体）
+        SourceHanSansSC-Bold.otf
 ```
 
 要求游戏是**脚本目录形式**（能读写 `game/tl/`）。打包进 `.rpa` 的游戏暂不支持写入。
@@ -93,6 +93,10 @@
   提交后写回 tl，状态立即变「已翻」。
 - **界面文本**：用下面的拾取模式，点到哪条翻哪条。
 
+拾取只认"有原文的文本"。输入框（例如存档页的 `Page 1`）、图标/图片按钮、
+运行时代码拼出来的文本都拾不到——面板会说明是哪种情况。这几类的译文要写进
+tl 的模板条目里，例如 `_("Page {}")`、`_("SAVE [SLOT]\n%A, %B %d %Y, %H:%M")`。
+
 写回时遵循 Ren'Py 官方的归属规则（该文本本来属于哪个 tl 文件就写回哪里），
 并且**写入前会做全文件查重**——同一个原文只会有一条译文，不会产生
 让游戏启动报错的重复条目。
@@ -133,10 +137,10 @@
 | `livetl_position` | `"top-right"` | 面板位置：`top-right` / `bottom-right` |
 | `livetl_panel_width` | `680` | 面板宽度（像素） |
 | `livetl_menu_list_height` | `260` | 菜单列表最大高度（像素），超出后列表内滚动 |
-| `livetl_font` | MiSans | 面板字体 |
+| `livetl_font` | `""` | 面板字体；留空跟随游戏自身字体 |
 | `livetl_replace_fonts` | `True` | 是否启用字体替换 |
-| `livetl_font_file` | MiSans-Regular | 替换用的字体 |
-| `livetl_font_file_bold` | MiSans-Bold | 粗体用的字体 |
+| `livetl_font_file` | `""` | 替换游戏字体用的字体文件；留空不替换 |
+| `livetl_font_file_bold` | `""` | 粗体用的字体文件；留空由 Ren'Py 处理 |
 | `livetl_scan_fonts` | `True` | 是否扫描脚本收集游戏用到的字体 |
 | `livetl_show_id` | `False` | 显示当前句的翻译标识符（排查问题用） |
 | `livetl_dup_check_on_start` | `True` | 启动时自动检查重复字符串条目（只提示，不自动改） |
@@ -148,7 +152,7 @@
 字体，并通过 Ren'Py 自带的 `config.font_replacement_map` 把它们统一替换成
 **你自备的中文字体**。
 
-**本仓库不附带任何字体文件**——常见中文字体（例如小米 MiSans）的许可协议
+**本仓库不附带任何字体文件**——常见中文字体的许可协议
 禁止把字体文件随作品再分发，所以字体需要你自己准备。
 
 1. 下载一款支持中文、且允许再分发的字体，推荐：
@@ -204,6 +208,8 @@
 ## 已知限制
 
 - 拾取模式只处理字符串条目；拾取到对话文本时会提示用对话模式翻译
+- 输入框、图标按钮、动态拼接出来的文本拾取不到（面板会说明原因），
+  这类文本要直接翻 tl 里的模板条目，例如 `_("Page {}")`
 - 不做 `{#tag}` 上下文区分：同一原文沿用同一译文，界面上会提示"（重复）"
 - 一条译文对应一句，暂不支持跨句合并或拆分
 - 请勿用鼠标点击输入框——点击可能被游戏当成"继续对话"推进一步（焦点会自动进入输入框，直接打字即可）
@@ -218,7 +224,6 @@
 - 翻译文件的生成、写回与重载均基于 **Ren'Py** 官方接口
   （`renpy.translation.generation`、`renpy.reload_script()`、
   `renpy.get_translation_identifier()` 等）。
-- 内置字体为小米 **MiSans**。
 
 ## 许可
 
