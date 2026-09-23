@@ -211,7 +211,8 @@ init -50 python:
         """把外面拖进来的字体复制进字体目录。
 
         同一份文件（内容一致）重复拖入不会产生副本；同名但内容不同时
-        自动加 -1、-2 后缀，不覆盖已有字体。
+        既不覆盖也不另存，回报错误让译者自己改名 —— 目录里同名文件
+        只能有一个，攒副本和覆盖都容易把字体目录弄乱。
         返回 (相对路径, 错误信息)；出错时相对路径是 None。
         """
         source_path = livetl_font_normalize_path(source_path)
@@ -227,20 +228,15 @@ init -50 python:
 
         name = os.path.basename(source_path)
         target_path = os.path.join(_livetl_fonts_dir_path(), name)
-        digest = _livetl_font_digest(source_path)
 
-        # 同一份字体已经在目录里了，直接用现成的
-        if digest and os.path.isfile(target_path) and _livetl_font_digest(target_path) == digest:
-            return _livetl_font_rel(name), ""
+        if os.path.isfile(target_path):
+            digest = _livetl_font_digest(source_path)
 
-        # 同名但内容不同：加序号，别把已有字体盖掉
-        stem, ext = os.path.splitext(name)
-        index = 1
+            # 同一份字体已经在目录里了，直接用现成的
+            if digest and _livetl_font_digest(target_path) == digest:
+                return _livetl_font_rel(name), ""
 
-        while os.path.isfile(target_path):
-            name = "{}-{}{}".format(stem, index, ext)
-            target_path = os.path.join(_livetl_fonts_dir_path(), name)
-            index += 1
+            return None, "fonts 目录里已经有一个同名的 {}（内容不同），请先改名再拖".format(name)
 
         try:
             if not os.path.isdir(_livetl_fonts_dir_path()):
