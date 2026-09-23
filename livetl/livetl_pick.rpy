@@ -323,12 +323,15 @@ screen livetl_pick():
     key "game_menu" action Function(livetl_pick_exit)
     key livetl_pick_hotkey action Function(livetl_pick_exit)
 
-    # 顶部提示条
+    # 顶部提示条：显示拾取指引，以及"为什么拾取不到"的原因。
+    # 拾取时面板是收起的，提示只能显示在这里，否则点了没反应。
+    $ _livetl_pick_status = livetl_escape(livetl_status)
+
     frame:
         style "livetl_pick_tip"
         xalign 0.5
         ypos 10
-        text "拾取模式：点击要翻译的文本，Esc 退出" style "livetl_pick_tip_text"
+        text "[_livetl_pick_status]" style "livetl_pick_tip_text"
 
     # 鼠标附近的原文预览
     if livetl_pick_preview:
