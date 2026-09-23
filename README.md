@@ -144,11 +144,8 @@ tl 的模板条目里，例如 `_("Page {}")`、`_("SAVE [SLOT]\n%A, %B %d %Y, %
 | `livetl_position` | `"top-right"` | 面板位置：`top-right` / `bottom-right` |
 | `livetl_panel_width` | `680` | 面板宽度（像素） |
 | `livetl_menu_list_height` | `260` | 菜单列表最大高度（像素），超出后列表内滚动 |
-| `livetl_font` | `""` | 面板字体；留空跟随游戏自身字体 |
-| `livetl_replace_fonts` | `True` | 是否启用字体替换 |
-| `livetl_font_file` | `""` | 替换游戏字体用的字体文件；留空不替换 |
-| `livetl_font_file_bold` | `""` | 粗体用的字体文件；留空由 Ren'Py 处理 |
-| `livetl_scan_fonts` | `True` | 是否扫描脚本收集游戏用到的字体 |
+| `livetl_font` | `"livetl/fonts/SourceHanSansSC-Regular.otf"` | 游戏字体：把游戏里用到的字体统一换成它；留空用游戏原字体 |
+| `livetl_panel_font` | `""` | 面板字体；留空跟随游戏字体 |
 | `livetl_show_id` | `False` | 显示当前句的翻译标识符（排查问题用） |
 | `livetl_dup_check_on_start` | `True` | 启动时自动检查重复字符串条目（只提示，不自动改） |
 | `livetl_debug` | `True` | 是否写 `game/livetl.log` |
@@ -156,7 +153,8 @@ tl 的模板条目里，例如 `_("Page {}")`、`_("SAVE [SLOT]\n%A, %B %d %Y, %
 ## 字体
 
 汉化后原文的字体往往不含中文字形（显示成方块）。插件会扫描游戏脚本里用到的字体，
-并通过 Ren'Py 自带的 `config.font_replacement_map` 把它们统一替换成一个中文字体。
+并通过 Ren'Py 自带的 `config.font_replacement_map` 把它们统一替换成 `livetl_font`
+（默认是随插件附带的思源黑体简体）。`livetl_font` 留空则不替换，游戏用回自己的字体。
 
 随插件附带：
 
@@ -165,7 +163,9 @@ tl 的模板条目里，例如 `_("Page {}")`、`_("SAVE [SLOT]\n%A, %B %d %Y, %
 | `livetl/fonts/SourceHanSansSC-Regular.otf` | 思源黑体简体（Source Han Sans SC），Regular 字重 |
 | `livetl/fonts/LICENSE.txt` | 该字体的 SIL Open Font License 1.1 许可 |
 
-粗体交给 Ren'Py 自行处理——仓库只附带了一个字重；想要更精确的粗体，可以自备 Bold 字体。
+插件只带了一个字重，粗体由 Ren'Py 自行处理（按字号膨胀位图的伪粗体）。注意游戏里
+常见的那种"粗体标题"往往是另一个字体文件（例如 `Manrope-Bold.ttf`），替换后会变成
+普通字重。
 
 **关于许可**：思源黑体采用 OFL 1.1，允许随软件打包、再分发和商用，条件是
 **每一份副本都要带上版权声明和许可文件**。所以：
@@ -178,11 +178,11 @@ tl 的模板条目里，例如 `_("Page {}")`、`_("SAVE [SLOT]\n%A, %B %d %Y, %
 把字体放进 `livetl/fonts/`，再改 `livetl/livetl_config.rpy`：
 
 ```renpy
-livetl_font_file      = "livetl/fonts/你的字体-Regular.otf"
-livetl_font_file_bold = "livetl/fonts/你的字体-Bold.otf"
+livetl_font       = "livetl/fonts/你的字体.otf"   # 游戏字体，留空 = 不替换
+livetl_panel_font = ""                           # 面板字体，留空 = 跟随游戏字体
 ```
 
-留空表示**不做字体替换**，游戏原本的字体照常使用。两点注意：
+`livetl_font` 留空表示**不做字体替换**，游戏原本的字体照常使用。两点注意：
 
 - 请用**静态字重**（`.otf` / `.ttf`）。可变字体（文件名常带 `VF`）在 Ren'Py 里
   不会渲染，中文会显示成方块。

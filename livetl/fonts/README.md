@@ -17,8 +17,8 @@
 把字体文件放进这个目录，然后在 `livetl/livetl_config.rpy` 里填路径：
 
 ```renpy
-livetl_font_file      = "livetl/fonts/你的字体-Regular.otf"
-livetl_font_file_bold = "livetl/fonts/你的字体-Bold.otf"
+livetl_font       = "livetl/fonts/你的字体.otf"   # 游戏字体，留空 = 不替换
+livetl_panel_font = ""                           # 面板字体，留空 = 跟随游戏字体
 ```
 
 这个目录默认被 `.gitignore` 忽略（只有上面附带的两个文件例外），

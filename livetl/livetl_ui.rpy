@@ -400,21 +400,28 @@ style livetl_menu_item_text is default:
 
 init 500 python:
 
-    # 面板字体：默认跟随游戏本身的字体；只有配置了 livetl_font
-    # 才覆盖成指定字体（例如游戏字体不含中文时）。
+    # 面板字体：livetl_panel_font 优先，留空则跟随游戏字体（livetl_font）；
+    # 两个都留空时不覆盖样式，面板继承游戏自己的字体。
     #
     # try/except 是为了兼容 lint：lint 阶段样式表尚未建立，
     # 直接赋值会中断检查。
-    if livetl_font:
+    _livetl_ui_font = livetl_effective_panel_font()
+
+    # 字体文件不存在时退回不覆盖，免得面板渲染直接报错
+    if _livetl_ui_font and not renpy.loadable(_livetl_ui_font):
+        livetl_log("panel font skipped: {!r} not found".format(_livetl_ui_font))
+        _livetl_ui_font = ""
+
+    if _livetl_ui_font:
         try:
-            style.livetl_title.font = livetl_font
-            style.livetl_source.font = livetl_font
-            style.livetl_input.font = livetl_font
-            style.livetl_action_text.font = livetl_font
-            style.livetl_status.font = livetl_font
-            style.livetl_menu_item_text.font = livetl_font
-            style.livetl_pick_tip_text.font = livetl_font
-            style.livetl_pick_preview_text.font = livetl_font
+            style.livetl_title.font = _livetl_ui_font
+            style.livetl_source.font = _livetl_ui_font
+            style.livetl_input.font = _livetl_ui_font
+            style.livetl_action_text.font = _livetl_ui_font
+            style.livetl_status.font = _livetl_ui_font
+            style.livetl_menu_item_text.font = _livetl_ui_font
+            style.livetl_pick_tip_text.font = _livetl_ui_font
+            style.livetl_pick_preview_text.font = _livetl_ui_font
         except Exception:
             pass
 
