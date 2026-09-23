@@ -101,6 +101,94 @@ init -50 python:
 
         return (len(_livetl_file_rank), relpath)
 
+    def livetl_drop_empty_string_blocks(language=None):
+        """删掉"只有表头、没有条目"的 translate strings 块。
+
+        这种块会让 Ren'Py 报 "translate strings statement expects a
+        non-empty block"，整个语言都加载不了。
+
+        生成模板、删条目、清理重复条目之后都会检查一遍：删掉一个块里
+        最后一条 old/new 时，剩下的表头就会变成这种坏块。
+        返回清理过的文件数。
+        """
+        if language is None:
+            language = livetl_target_language()
+
+        header = "translate {} strings:".format(language)
+        cleaned = 0
+
+        for path in livetl_iter_tl_files(language):
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+            except Exception:
+                continue
+
+            # 文件开头可能有 BOM（官方生成器给新文件写的就是带 BOM 的）：
+            # 扫描时去掉，写回时原样加回去，免得把 BOM 弄丢。
+            bom = "\ufeff" if content.startswith("\ufeff") else ""
+            lines = content[len(bom):].split("\n")
+
+            out = []
+            changed = False
+            i = 0
+
+            while i < len(lines):
+                if lines[i].strip() != header:
+                    out.append(lines[i])
+                    i += 1
+                    continue
+
+                # 看这个块里有没有实际内容
+                j = i + 1
+                has_body = False
+
+                while j < len(lines):
+                    s = lines[j].strip()
+
+                    if s.startswith("translate ") or s.startswith("label "):
+                        break
+
+                    if s.startswith("old ") or s.startswith("new "):
+                        has_body = True
+                        break
+
+                    j += 1
+
+                if has_body:
+                    out.append(lines[i])
+                    i += 1
+                    continue
+
+                # 空块：连同它上面刚写的 TODO 注释一起删掉
+                while out and out[-1].strip().startswith("# TODO"):
+                    out.pop()
+
+                changed = True
+                i += 1
+
+                while (i < len(lines)) and (lines[i].strip() == ""):
+                    i += 1
+
+            if not changed:
+                continue
+
+            content = "\n".join(out)
+            if not content.endswith("\n"):
+                content += "\n"
+
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(bom + content)
+                cleaned += 1
+            except Exception as e:
+                livetl_log("drop empty strings block failed {}: {!r}".format(path, e))
+
+        if cleaned:
+            livetl_log("dropped empty strings blocks in {} file(s)".format(cleaned))
+
+        return cleaned
+
     def livetl_string_is_translated(old, new):
         """这条条目是不是"真的翻译过"（而不是模板里写的原文占位）。"""
         return bool(new) and (new != old)
@@ -407,6 +495,7 @@ init -50 python:
             return None
 
         livetl_invalidate_string_index()
+        livetl_drop_empty_string_blocks(language)
         livetl_log("delete string entry: {!r} from {}".format(key, rel))
         return rel
 
@@ -526,5 +615,6 @@ init -50 python:
                 continue
 
         livetl_invalidate_string_index()
+        livetl_drop_empty_string_blocks(language)
         livetl_log("dup clean: {} 条，备份 {!r}".format(removed, backup))
         return (removed, backup)
