@@ -517,6 +517,27 @@ init -90 python:
             return False
 
     # ---------------------------------------------------------------------
+    # 契约层：字体与文本排版缓存
+    # ---------------------------------------------------------------------
+
+    def livetl_engine_clear_text_cache():
+        """丢掉引擎缓存的文本排版，让换字体之后画面立即重排。
+
+        引擎按"文本 + 样式"缓存排版结果，而换字体改的是
+        config.font_replacement_map —— 样式名没变，于是缓存命中旧排版，
+        画面上还是旧字体，直到下一次重载脚本。
+
+        成功返回 True；引擎升级后这个接口消失时返回 False
+        （调用方可以退回"提示译者手动重载"）。
+        """
+        try:
+            renpy.text.text.layout_cache_clear()
+            return True
+        except Exception as e:
+            livetl_engine_note_error("clear_text_cache", e)
+            return False
+
+    # ---------------------------------------------------------------------
     # 契约层：启动自检
     # ---------------------------------------------------------------------
 
@@ -562,5 +583,8 @@ init -90 python:
                 flag(_livetl_engine_can_import("renpy.translation.generation")),
                 flag(_livetl_engine_can_import("renpy.translation.scanstrings")),
                 render,
+            ),
+            "engine seam: text_cache={}".format(
+                flag(hasattr(getattr(renpy.text, "text", None), "layout_cache_clear")),
             ),
         ]

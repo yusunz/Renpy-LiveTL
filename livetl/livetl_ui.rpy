@@ -114,8 +114,67 @@ init python:
             livetl_submit()
             return None
 
+    class LiveTLFontDropTarget(renpy.Displayable):
+        """接住从系统里拖进来的字体文件。
+
+        引擎只会把 DROPFILE 交给渲染树里的 displayable，所以设置界面要
+        挂上这么一层（它自己不画东西）。注意事件的派发与坐标无关：
+        拖到游戏窗口上就算数，界面里那个方框只是给译者瞄准的地方。
+        """
+
+        def __init__(self, **kwargs):
+            renpy.Displayable.__init__(self, **kwargs)
+
+        def render(self, width, height, st, at):
+            return renpy.Render(1, 1)
+
+        def event(self, ev, x, y, st):
+            if ev.type == livetl_font_drop_event_type():
+                livetl_font_drop(getattr(ev, "file", None))
+
+                # 列表开着的话（拖入时通常开着），把它刷成最新的
+                if store.livetl_font_panel_open:
+                    store.livetl_font_choices = livetl_font_list()
+
+            return None
+
+    livetl_font_drop_target = LiveTLFontDropTarget()
+
+    # ---------------------------------------------------------------------
+    # 设置界面里的字体操作
+    # ---------------------------------------------------------------------
+
+    def livetl_font_panel_toggle():
+        """展开 / 收起字体列表（展开时重新扫一遍字体目录）。"""
+        open_now = not bool(store.livetl_font_panel_open)
+        store.livetl_font_panel_open = open_now
+
+        if open_now:
+            store.livetl_font_choices = livetl_font_list()
+
+        livetl_restart()
+
+    def livetl_font_choose(rel_path):
+        """从列表里挑一个字体。"""
+        store.livetl_font_panel_open = False
+        livetl_font_use(rel_path)
+
+    def livetl_font_choice_text(choice):
+        """字体列表里一行的显示文字。"""
+        text = choice["name"]
+
+        if choice["variable"]:
+            text += "（可变字体，中文可能显示方块）"
+
+        if choice["path"] == livetl_font:
+            text = "· " + text
+
+        return text
+
 
 default livetl_value = LiveTLInputValue("livetl_input")
+default livetl_font_panel_open = False
+default livetl_font_choices = []
 
 
 init 10 python:
@@ -208,6 +267,47 @@ screen livetl_panel():
                     spacing 10
                     textbutton "开始翻译" style "livetl_action" action Function(livetl_confirm_language)
                     textbutton "检查重复" style "livetl_action" action Function(livetl_dup_open)
+
+                # 换字体：点按钮出字体列表；也可以把字体文件直接拖进窗口
+                $ _font_display = livetl_font_display_name()
+                text "游戏字体：[_font_display]" style "livetl_source"
+
+                hbox:
+                    spacing 10
+
+                    textbutton ("收起字体列表" if livetl_font_panel_open else "选择字体"):
+                        style "livetl_action"
+                        action Function(livetl_font_panel_toggle)
+
+                if livetl_font_panel_open:
+
+                    if livetl_font_choices:
+                        viewport:
+                            ymaximum livetl_menu_list_height
+                            scrollbars "vertical"
+                            mousewheel True
+
+                            vbox:
+                                spacing 2
+
+                                for _livetl_font_choice in livetl_font_choices:
+                                    $ _livetl_font_choice_text = livetl_font_choice_text(_livetl_font_choice)
+                                    textbutton "[_livetl_font_choice_text]":
+                                        style "livetl_menu_item"
+                                        selected (_livetl_font_choice["path"] == livetl_font)
+                                        action Function(livetl_font_choose, _livetl_font_choice["path"])
+                    else:
+                        text "livetl/fonts/ 里没有可用的字体文件" style "livetl_status"
+
+                    # 拖放区：方框只是给译者瞄准用的，拖到窗口里就算数
+                    frame:
+                        background "#ffffff18"
+                        padding (12, 10)
+                        xfill True
+
+                        text "把字体文件拖到这里" style "livetl_source" xalign 0.5
+
+                    add livetl_font_drop_target
 
                 # 设置界面也要有反馈：否则点【检查重复】之类的操作看不到结果
                 if livetl_status:
@@ -400,30 +500,43 @@ style livetl_menu_item_text is default:
 
 init 500 python:
 
-    # 面板字体：livetl_panel_font 优先，留空则跟随游戏字体（livetl_font）；
-    # 两个都留空时不覆盖样式，面板继承游戏自己的字体。
-    #
-    # try/except 是为了兼容 lint：lint 阶段样式表尚未建立，
-    # 直接赋值会中断检查。
-    _livetl_ui_font = livetl_effective_panel_font()
+    # 面板上所有显示文字的样式（换字体时一起改）
+    _livetl_panel_font_styles = [
+        "livetl_title",
+        "livetl_source",
+        "livetl_input",
+        "livetl_action_text",
+        "livetl_status",
+        "livetl_menu_item_text",
+        "livetl_pick_tip_text",
+        "livetl_pick_preview_text",
+    ]
 
-    # 字体文件不存在时退回不覆盖，免得面板渲染直接报错
-    if _livetl_ui_font and not renpy.loadable(_livetl_ui_font):
-        livetl_log("panel font skipped: {!r} not found".format(_livetl_ui_font))
-        _livetl_ui_font = ""
+    def livetl_apply_panel_font():
+        """把面板字体设成当前该用的那个（换完字体还会再调一次）。
 
-    if _livetl_ui_font:
+        livetl_panel_font 优先，留空跟随游戏字体（livetl_font）；
+        两个都留空时不覆盖样式，面板继承游戏自己的字体。
+        字体文件不存在也退回不覆盖，免得面板渲染直接报错。
+        """
+        font = livetl_effective_panel_font()
+
+        if font and not renpy.loadable(font):
+            livetl_log("panel font skipped: {!r} not found".format(font))
+            font = ""
+
+        if not font:
+            return
+
+        # try/except 是为了兼容 lint：lint 阶段样式表尚未建立，
+        # 直接赋值会中断检查。
         try:
-            style.livetl_title.font = _livetl_ui_font
-            style.livetl_source.font = _livetl_ui_font
-            style.livetl_input.font = _livetl_ui_font
-            style.livetl_action_text.font = _livetl_ui_font
-            style.livetl_status.font = _livetl_ui_font
-            style.livetl_menu_item_text.font = _livetl_ui_font
-            style.livetl_pick_tip_text.font = _livetl_ui_font
-            style.livetl_pick_preview_text.font = _livetl_ui_font
+            for name in _livetl_panel_font_styles:
+                getattr(style, name).font = font
         except Exception:
             pass
+
+    livetl_apply_panel_font()
 
 
 init python:
