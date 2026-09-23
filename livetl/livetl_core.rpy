@@ -92,6 +92,12 @@ init -50 python:
                     renpy.version_string,
                     renpy.config.name,
                 ))
+
+                # 引擎自检：这几行说明当前引擎上哪些内部接口可用，
+                # 报问题时先看它们，省去逐个猜版本差异（见 livetl_engine.rpy）。
+                for line in livetl_engine_probe():
+                    f.write(line + "\n")
+
                 f.write("-" * 60 + "\n")
         except Exception:
             pass
@@ -142,70 +148,14 @@ init -50 python:
 
     # ---------------------------------------------------------------------
     # 定位当前台词
+    #
+    # 这里只留语义包装：所有对引擎内部结构的访问都在 livetl_engine.rpy 里，
+    # 详见该文件开头的结构约定。
     # ---------------------------------------------------------------------
 
     def livetl_current_id():
         """当前台词的翻译标识符；不在台词上时返回 None。"""
-        try:
-            return renpy.get_translation_identifier()
-        except Exception:
-            return None
-
-    def livetl_lookup_node(tid):
-        """当前语言下这一句实际执行的节点。
-
-        Ren'Py 8.5 起 lookup_translate 返回 (节点, 是否已有译文)，
-        8.1 只返回节点，这里统一成节点。
-        """
-        if not tid:
-            return None
-
-        rv = renpy.game.script.translator.lookup_translate(tid)
-        if isinstance(rv, tuple):
-            return rv[0]
-        return rv
-
-    def livetl_block_nodes(node):
-        """取出一个翻译块包含的 AST 节点。
-
-        Ren'Py 8.5 起单句对话是 TranslateSay 节点，
-        更早的版本是 Translate 节点包着一个块。
-        """
-        translate_say = getattr(renpy.ast, "TranslateSay", None)
-        if translate_say is not None and isinstance(node, translate_say):
-            return [node]
-        return node.block
-
-    def livetl_find_source(tid):
-        """从默认语言节点里读出这一句的原文。"""
-        if not tid:
-            return None
-
-        node = renpy.game.script.translator.default_translates.get(tid)
-        if node is None:
-            return None
-
-        for n in livetl_block_nodes(node):
-            if isinstance(n, renpy.ast.Say):
-                return n.what
-
-        return None
-
-    def livetl_block_code(node, text=None):
-        """生成翻译块里的代码行。
-
-        text 为 None 时输出原文（用作 # 注释行），否则输出译文行。
-        生成结果与 Ren'Py 官方 tl 格式一致。
-        """
-        rv = []
-
-        for n in livetl_block_nodes(node):
-            if (text is not None) and isinstance(n, renpy.ast.Say):
-                rv.append("    " + n.get_code(lambda s: text))
-            else:
-                rv.append("    " + n.get_code())
-
-        return rv
+        return livetl_engine_current_tid()
 
     def livetl_parse_quoted(code_line):
         """从一行台词代码里取出引号中的文本；取不到时返回 None。"""
@@ -218,27 +168,9 @@ init -50 python:
     # tl 文件读写
     # ---------------------------------------------------------------------
 
-    def livetl_tl_path(language, tid):
-        """这一句的译文应当写进哪个 tl 文件。"""
-        from renpy.translation import generation as gen
-
-        node = renpy.game.script.translator.default_translates.get(tid)
-        if node is None:
-            return None
-
-        fn, common = gen.shorten_filename(node.filename)
-        if common:
-            return None
-
-        # .rpym 的翻译按 .rpy 存放，与官方生成逻辑保持一致
-        if fn.endswith("m"):
-            fn = fn[:-1]
-
-        return os.path.join(renpy.config.gamedir, renpy.config.tl_directory, language, fn)
-
     def livetl_read_entry(language, tid):
         """读取这一句已有的译文；文件或条目不存在时返回 None。"""
-        path = livetl_tl_path(language, tid)
+        path = livetl_engine_tl_path(language, tid)
         if not path or not os.path.exists(path):
             return None
 
@@ -264,15 +196,15 @@ init -50 python:
 
     def livetl_write_entry(language, tid, text):
         """把译文写回 tl 文件中的这一条；文件里其它内容保持原样。"""
-        node = renpy.game.script.translator.default_translates.get(tid)
-        if node is None:
+        filename, linenumber = livetl_engine_source_location(tid)
+        if not filename:
             return None
 
-        path = livetl_tl_path(language, tid)
+        path = livetl_engine_tl_path(language, tid)
         if path is None:
             return None
 
-        new_lines = livetl_block_code(node, text)
+        new_lines = livetl_engine_block_code(tid, text)
         header = "translate {} {}:".format(language, tid.replace(".", "_"))
 
         if os.path.exists(path):
@@ -290,10 +222,10 @@ init -50 python:
         if idx is None:
             # 文件里还没有这一条：按官方格式追加一个块
             lines.append("")
-            lines.append("# {}:{}".format(node.filename, node.linenumber))
+            lines.append("# {}:{}".format(filename, linenumber))
             lines.append(header)
             lines.append("")
-            for code in livetl_block_code(node):
+            for code in livetl_engine_block_code(tid):
                 lines.append("    # " + code.strip())
             lines.extend(new_lines)
         else:
@@ -383,37 +315,14 @@ init -50 python:
 
         return len(livetl_scan_tl_identifiers(language)) + strings
 
-    def livetl_translate_files():
-        """要生成翻译的源文件清单（官方清单，去掉重复项）。
-
-        config.translate_files 与自动扫描可能重叠，同一个文件出现两次时，
-        一轮生成会把它的每个翻译块写两遍 —— 而重复条目会让游戏启动报错。
-        """
-        from renpy.translation import generation as gen
-
-        rv = []
-        seen = set()
-
-        for filename in gen.translate_list_files():
-            key = os.path.normpath(os.path.abspath(filename))
-
-            if key in seen:
-                continue
-
-            seen.add(key)
-            rv.append(filename)
-
-        return rv
-
     def livetl_seed_existing_entries(language=None):
         """把"tl 文件里已经有的条目"临时登记进引擎的翻译表。
 
         官方生成器判断"这条是不是已经有了"，看的是内存里的翻译表
-        （对话在 translator.language_translates，字符串在
-        translator.strings[语言].translations），而这张表只在游戏启动、
-        脚本加载时由 tl 文件填充。本次运行中新写出来的 tl 文件不在表里，
-        直接调用官方生成器会把它们当成新条目再写一遍 —— 已经翻好的内容
-        会被空译文盖掉，还会留下让游戏启动报错的重复条目。
+        （引擎侧怎么读怎么写见 livetl_engine.rpy），而这张表只在游戏
+        启动、脚本加载时由 tl 文件填充。本次运行中新写出来的 tl 文件不在
+        表里，直接调用官方生成器会把它们当成新条目再写一遍 —— 已经翻好的
+        内容会被空译文盖掉，还会留下让游戏启动报错的重复条目。
 
         所以生成前按"文件里实际存在的条目"补上占位登记，生成后由
         livetl_unseed_existing_entries() 原样撤掉，运行期行为不变。
@@ -424,38 +333,32 @@ init -50 python:
         if language is None:
             language = livetl_target_language()
 
-        translator = renpy.game.script.translator
         identifiers = livetl_scan_tl_identifiers(language)
         says = []
 
-        for filename in livetl_translate_files():
-            for _label, t in translator.file_translates[filename]:
-                key = (t.identifier, language)
-
-                if key in translator.language_translates:
-                    continue
-
-                # 写进文件时点号会换成下划线，比对时按文件里的写法
-                written = [t.identifier]
-
-                alternate = getattr(t, "alternate", None)
-                if alternate is not None:
-                    written.append(alternate)
-
-                if not any(i.replace(".", "_") in identifiers for i in written):
-                    continue
-
-                translator.language_translates[key] = None
-                says.append(key)
-
-        strings = []
-        translations = translator.strings[language].translations
-
-        for old in livetl_scan_string_index(language, force=True):
-            if old in translations:
+        for identifier, alternate in livetl_engine_all_translate_ids():
+            if livetl_engine_has_translation(identifier, language):
                 continue
 
-            translations[old] = None
+            # 写进文件时点号会换成下划线，比对时按文件里的写法
+            written = [identifier]
+
+            if alternate is not None:
+                written.append(alternate)
+
+            if not any(i.replace(".", "_") in identifiers for i in written):
+                continue
+
+            livetl_engine_seed_translation(identifier, language)
+            says.append((identifier, language))
+
+        strings = []
+
+        for old in livetl_scan_string_index(language, force=True):
+            if livetl_engine_has_string_translation(old, language):
+                continue
+
+            livetl_engine_seed_string_translation(old, language)
             strings.append(old)
 
         if says or strings:
@@ -468,15 +371,11 @@ init -50 python:
         if not seeded:
             return
 
-        translator = renpy.game.script.translator
-
-        for key in seeded["says"]:
-            translator.language_translates.pop(key, None)
-
-        translations = translator.strings[seeded["language"]].translations
+        for identifier, language in seeded["says"]:
+            livetl_engine_unseed_translation(identifier, language)
 
         for old in seeded["strings"]:
-            translations.pop(old, None)
+            livetl_engine_unseed_string_translation(old, seeded["language"])
 
     def livetl_generate_templates(language=None):
         """增量生成（补全）tl/<语言>/ 下的标准翻译模板。
@@ -494,30 +393,15 @@ init -50 python:
         if language is None:
             language = livetl_target_language()
 
-        from renpy.translation import generation as gen
-
         # 官方生成器只看内存里的翻译表，而本次运行新写出来的 tl 文件不在表里：
         # 先补登记，生成完再撤掉（见 livetl_seed_existing_entries）。
         seeded = livetl_seed_existing_entries(language)
 
         try:
-            # TODO 注释由官方生成器写，官方默认就是开着；这里写明，
-            # 免得被进程里别的调用改掉。
-            gen.todo = True
-
             # 对话统一生成空字符串（等同 Launcher 的"为翻译生成空字符串"）：
             # "未翻译时显示原文"由显示层处理，不写进文件。
-            count = 0
-
-            for filename in livetl_translate_files():
-                gen.write_translates(filename, language, gen.empty_filter)
-                count += 1
-
-            # 界面字符串和菜单选项保留原文：
-            # 它们如果也是空的，切到新语言后按钮会变成空白，译者没法操作。
-            gen.write_strings(language, gen.null_filter, 0, 299, False, [])
+            count = livetl_engine_generate_templates(language)
         finally:
-            gen.close_tl_files()
             livetl_unseed_existing_entries(seeded)
 
         # 文件变了：字符串索引要重建；顺便清掉"只有表头、没有条目"的
@@ -526,7 +410,7 @@ init -50 python:
         livetl_invalidate_string_index()
         livetl_drop_empty_string_blocks(language)
 
-        renpy.game.script.translator.languages.add(language)
+        livetl_engine_register_language(language)
 
         livetl_log("generate_templates: scanned {} files for {!r}".format(count, language))
         return count
@@ -874,7 +758,7 @@ init -50 python:
         store.livetl_current_kind = "say"
         store.livetl_current_key = None
         store.livetl_current_tid = tid
-        store.livetl_current_source = livetl_find_source(tid) or ""
+        store.livetl_current_source = livetl_engine_source_text(tid) or ""
 
         # 输入框：已经有译文就填进去方便修改，没有就留空。
         existing = None
@@ -988,6 +872,6 @@ init 10 python:
         if not tid:
             return what
 
-        return livetl_find_source(tid) or what
+        return livetl_engine_source_text(tid) or what
 
     config.say_menu_text_filter = _livetl_untranslated_filter

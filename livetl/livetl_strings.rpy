@@ -286,24 +286,18 @@ init -50 python:
     def livetl_string_file_map(force=False):
         """源码里每个字符串的官方归属文件（懒加载 + 缓存）。
 
-        沿用 Ren'Py 官方的 scanstrings + translation_filename 规则，
-        与 Launcher 的「生成翻译」写到同一个文件。
+        沿用 Ren'Py 官方的 scanstrings + translation_filename 规则
+        （在 livetl_engine.rpy 里），与 Launcher 的「生成翻译」写到同一个文件。
         """
         cached = renpy.session.get("livetl_string_file_map")
 
         if (cached is not None) and (not force):
             return cached
 
-        rv = {}
+        rv = livetl_engine_string_file_map()
 
-        try:
-            from renpy.translation import scanstrings, generation
-
-            for s in scanstrings.scan(0, 299, False):
-                if s.text not in rv:
-                    rv[s.text] = generation.translation_filename(s)
-        except Exception as e:
-            livetl_log("string file map: 扫描失败 {!r}".format(e))
+        if not rv and livetl_engine_last_error():
+            livetl_log("string file map: 扫描失败 {}".format(livetl_engine_last_error()))
 
         renpy.session["livetl_string_file_map"] = rv
         return rv

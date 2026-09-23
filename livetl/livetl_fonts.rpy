@@ -24,13 +24,7 @@ init -50 python:
         """
         fonts = set()
 
-        try:
-            from renpy.translation import generation as gen
-            filenames = gen.translate_list_files()
-        except Exception:
-            filenames = []
-
-        for filename in filenames:
+        for filename in livetl_engine_translate_files():
             try:
                 with open(filename, "r", encoding="utf-8", errors="ignore") as f:
                     for m in _livetl_font_pattern.finditer(f.read()):

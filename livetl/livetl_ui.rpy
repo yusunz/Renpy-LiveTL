@@ -472,7 +472,7 @@ init python:
         所以这里主动显示面板；启动阶段的 GPU 性能测试
         同时抑制 underlay 与 overlay，把它排除掉。
         """
-        if renpy.display.interface.suppress_underlay:
+        if livetl_engine_underlay_suppressed():
             return
 
         # 目标语言选定后（含首次启动），补全 tl 模板
@@ -510,8 +510,7 @@ init python:
         tid = renpy.session.pop("livetl_replay_tid", None)
 
         if tid:
-            node = livetl_lookup_node(tid)
-            name = getattr(node, "name", None)
+            name = livetl_engine_replay_label(tid)
             livetl_log("replay after reload: tid={!r} name={!r}".format(tid, name))
 
             if name:

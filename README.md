@@ -207,6 +207,12 @@ livetl_panel_font = ""                           # 面板字体，留空 = 跟�
 | 未翻译时显示原文 | `config.say_menu_text_filter`（渲染阶段替换，不改动 tl 文件） |
 | 字体替换 | `config.font_replacement_map` |
 
+表里带引擎内部结构的那几项（默认语言节点、`generation` / `scanstrings`、
+渲染树、`Text.text_parameter`）都封在 `livetl/livetl_engine.rpy` 这一个文件里：
+其它文件只调用它的 `livetl_engine_*` 函数，引擎换版本时改动面只有那一处。
+每次启动写进 `game/livetl.log` 开头的 `engine:` / `engine seam:` 几行，就是
+当前引擎上这些接口的可用性自检结果。
+
 对话的 tl 条目里，**没翻过的一律是空字符串**——"空 = 没翻、有内容 = 翻了"。
 字符串条目的 tl 模板保留原文（空串会让菜单项变成不可点的空按钮），
 所以插件的判断是"译文和原文一样 = 还没翻"，界面上会标成「未翻」。

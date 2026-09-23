@@ -5,14 +5,13 @@
 # 点一下即可把这条文本交给面板翻译。适合翻译那些"跟着剧情走"抓不到的界面文本。
 #
 # 实现要点（都经过 8.1.1 / 8.5.3 实测）：
-#   * 用渲染树接口 main_displayables_at_point() 取鼠标下的元素；
-#   * Text.text_parameter 是替换前的文本，也就是原文；
+#   * 用渲染树接口取鼠标下的元素、从 Text 取替换前的文本（原文），
+#     这两件事都在 livetl_engine.rpy 里，本文件只调用它；
 #   * 拾取层要用 modal，并且 show/hide 之后必须 restart_interaction()，
 #     否则事件树不更新，点击会穿透到游戏。
 # =============================================================================
 
 init -50 python:
-    import builtins
     import os
 
     # 拾取模式是否开启（放 session：热重载与"回退"都不丢）
@@ -38,39 +37,9 @@ init -50 python:
 
         return ("/livetl/" in fn) or fn.startswith("livetl/")
 
-    def livetl_pick_text_of(d):
-        """从 Text displayable 取原文（text_parameter 是替换前的文本）。
-
-        注意：这里必须用 builtins.list / builtins.str 判断。
-        Ren'Py 的 store 里 list 被换成了可回滚版本，而 text_parameter
-        是引擎内部创建的内置 list，用 store 的 list 判断会失败。
-        """
-        v = getattr(d, "text_parameter", None)
-
-        if isinstance(v, (builtins.list, builtins.tuple)):
-            v = "".join([i for i in v if isinstance(i, builtins.str)])
-
-        if isinstance(v, builtins.str) and v.strip():
-            return v
-
-        return None
-
     def livetl_pick_raw(x, y):
         """鼠标下的原始元素链（未过滤），每项是 (depth, w, h, displayable)。"""
-        interface = renpy.display.interface
-
-        if interface is None:
-            return []
-
-        tree = getattr(interface, "surftree", None)
-
-        if tree is None:
-            return []
-
-        try:
-            return tree.main_displayables_at_point(int(x), int(y), renpy.config.layers)
-        except Exception:
-            return []
+        return livetl_engine_displayables_at(x, y)
 
     def livetl_pick_probe(x=None, y=None):
         """鼠标下的文本：返回 (原文, 源码位置)；找不到返回 (None, None)。"""
@@ -91,15 +60,15 @@ init -50 python:
 
             depth, w, h, d = item
 
-            if not hasattr(d, "text_parameter"):
+            if not livetl_engine_is_text_displayable(d):
                 continue
 
-            location = getattr(d, "_location", None)
+            location = livetl_engine_displayable_location(d)
 
             if livetl_pick_own(location):
                 continue
 
-            text = livetl_pick_text_of(d)
+            text = livetl_engine_text_source(d)
 
             if text:
                 return (text, location)
@@ -135,7 +104,7 @@ init -50 python:
             elif name == "Button":
                 if "按钮" not in kinds:
                     kinds.append("按钮")
-            elif hasattr(d, "text_parameter"):
+            elif livetl_engine_is_text_displayable(d):
                 if "文本" not in kinds:
                     kinds.append("文本")
 
@@ -223,7 +192,7 @@ init -50 python:
 
         # 对话文本：提醒走对话模式（say 的翻译由 translate 块负责）
         tid = livetl_current_id()
-        source = livetl_find_source(tid) if tid else None
+        source = livetl_engine_source_text(tid)
 
         if source and (source == text):
             livetl_pick_set_active(False)

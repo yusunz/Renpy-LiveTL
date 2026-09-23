@@ -17,6 +17,9 @@ livetl/fonts/*
 # 给 AI 助手的工作说明，不纳入版本库
 AGENTS.md
 
+# 本地开发工具（引擎耦合门禁脚本），不纳入版本库
+tools/
+
 # 系统与编辑器
 Thumbs.db
 .DS_Store
