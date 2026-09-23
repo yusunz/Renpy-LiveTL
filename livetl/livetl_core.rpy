@@ -329,50 +329,202 @@ init -50 python:
     # 生成模板与热重载
     # ---------------------------------------------------------------------
 
-    def livetl_generate_templates(language=None):
-        """生成（或补全）tl/<语言>/ 下的标准翻译模板。
+    # tl 里除了台词块，还有这几种特殊的 translate 块（它们不是台词）
+    _livetl_special_translates = ("strings", "python", "style")
 
-        直接复用 Ren'Py 自带的翻译生成逻辑，
-        所以产出的文件与 Launcher 里「生成翻译」完全一致：
+    def livetl_scan_tl_identifiers(language=None):
+        """tl/<语言>/ 里已经写过的台词标识符。
+
+        只认 `translate <语言> <标识符>:` 这种台词块，
+        `strings` / `python` / `style` 这类特殊块不算。
+        """
+        if language is None:
+            language = livetl_target_language()
+
+        pattern = re.compile(r"^\s*translate\s+" + re.escape(language) + r"\s+(\S+)\s*:\s*$")
+        rv = set()
+
+        for path in livetl_iter_tl_files(language):
+            try:
+                # 用 utf-8 读、手动去掉 BOM：不依赖 utf-8-sig（部分环境没有）
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+            except Exception:
+                continue
+
+            if content.startswith("\ufeff"):
+                content = content[1:]
+
+            for line in content.split("\n"):
+                m = pattern.match(line)
+
+                if (m is None) or (m.group(1) in _livetl_special_translates):
+                    continue
+
+                rv.add(m.group(1))
+
+        return rv
+
+    def livetl_count_tl_entries(language=None):
+        """tl/<语言>/ 里现有的条目数：台词块 + 字符串条目。
+
+        增量生成前后各数一次，差值就是"这次补了多少条"。
+        字符串条目数从字符串索引里取（同一份解析逻辑，不重复实现）。
+        """
+        if language is None:
+            language = livetl_target_language()
+
+        strings = 0
+
+        # 索引按各文件的 (mtime, size) 缓存，生成前后会自动重建，
+        # 这里不用强制重扫。
+        for places in livetl_scan_string_index(language).values():
+            strings += len(places)
+
+        return len(livetl_scan_tl_identifiers(language)) + strings
+
+    def livetl_translate_files():
+        """要生成翻译的源文件清单（官方清单，去掉重复项）。
+
+        config.translate_files 与自动扫描可能重叠，同一个文件出现两次时，
+        一轮生成会把它的每个翻译块写两遍 —— 而重复条目会让游戏启动报错。
+        """
+        from renpy.translation import generation as gen
+
+        rv = []
+        seen = set()
+
+        for filename in gen.translate_list_files():
+            key = os.path.normpath(os.path.abspath(filename))
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+            rv.append(filename)
+
+        return rv
+
+    def livetl_seed_existing_entries(language=None):
+        """把"tl 文件里已经有的条目"临时登记进引擎的翻译表。
+
+        官方生成器判断"这条是不是已经有了"，看的是内存里的翻译表
+        （对话在 translator.language_translates，字符串在
+        translator.strings[语言].translations），而这张表只在游戏启动、
+        脚本加载时由 tl 文件填充。本次运行中新写出来的 tl 文件不在表里，
+        直接调用官方生成器会把它们当成新条目再写一遍 —— 已经翻好的内容
+        会被空译文盖掉，还会留下让游戏启动报错的重复条目。
+
+        所以生成前按"文件里实际存在的条目"补上占位登记，生成后由
+        livetl_unseed_existing_entries() 原样撤掉，运行期行为不变。
+
+        占位值统一用 None：官方生成器只看"键在不在表里"，而这个值正好是
+        引擎自己用来表示"没有译文"的，万一生成期间有人查表也只会退回原文。
+        """
+        if language is None:
+            language = livetl_target_language()
+
+        translator = renpy.game.script.translator
+        identifiers = livetl_scan_tl_identifiers(language)
+        says = []
+
+        for filename in livetl_translate_files():
+            for _label, t in translator.file_translates[filename]:
+                key = (t.identifier, language)
+
+                if key in translator.language_translates:
+                    continue
+
+                # 写进文件时点号会换成下划线，比对时按文件里的写法
+                written = [t.identifier]
+
+                alternate = getattr(t, "alternate", None)
+                if alternate is not None:
+                    written.append(alternate)
+
+                if not any(i.replace(".", "_") in identifiers for i in written):
+                    continue
+
+                translator.language_translates[key] = None
+                says.append(key)
+
+        strings = []
+        translations = translator.strings[language].translations
+
+        for old in livetl_scan_string_index(language, force=True):
+            if old in translations:
+                continue
+
+            translations[old] = None
+            strings.append(old)
+
+        if says or strings:
+            livetl_log("seed: tl 里已有 {} 条台词、{} 条字符串".format(len(says), len(strings)))
+
+        return {"language": language, "says": says, "strings": strings}
+
+    def livetl_unseed_existing_entries(seeded):
+        """撤掉 livetl_seed_existing_entries() 塞进去的占位登记。"""
+        if not seeded:
+            return
+
+        translator = renpy.game.script.translator
+
+        for key in seeded["says"]:
+            translator.language_translates.pop(key, None)
+
+        translations = translator.strings[seeded["language"]].translations
+
+        for old in seeded["strings"]:
+            translations.pop(old, None)
+
+    def livetl_generate_templates(language=None):
+        """增量生成（补全）tl/<语言>/ 下的标准翻译模板。
+
+        直接复用 Ren'Py 自带的翻译生成逻辑，产出的文件与 Launcher 里
+        「生成翻译」完全一致：
         每个脚本一个文件、每句对话一个 translate 块、原文写在 # 注释里。
+
+        官方生成逻辑本身就是增量的，已经登记过的条目会跳过，所以：
+          - 已经翻好的内容不会被覆盖；
+          - 没有新增内容的文件不会被写，也不会多出 TODO 注释；
+          - 有新增内容的文件会在新增条目前面写一行
+            `# TODO: Translation updated at ...`，方便对照剧本改动。
         """
         if language is None:
             language = livetl_target_language()
 
         from renpy.translation import generation as gen
 
-        # 对话统一生成空字符串（等同 Launcher 的"为翻译生成空字符串"）：
-        # "未翻译时显示原文"由显示层处理，不写进文件。
-        count = 0
-        for filename in gen.translate_list_files():
-            gen.write_translates(filename, language, gen.empty_filter)
-            count += 1
+        # 官方生成器只看内存里的翻译表，而本次运行新写出来的 tl 文件不在表里：
+        # 先补登记，生成完再撤掉（见 livetl_seed_existing_entries）。
+        seeded = livetl_seed_existing_entries(language)
 
-        # 界面字符串和菜单选项保留原文：
-        # 它们如果也是空的，切到新语言后按钮会变成空白，译者没法操作。
-        #
-        # 只在还没有这个语言的字符串文件时才写：Ren'Py 对重复的字符串翻译
-        # 会直接报错（"A translation for ... already exists"），
-        # 而 tl 一旦生成过，文件里已经包含这些条目了。
-        strings_path = os.path.join(
-            renpy.config.gamedir,
-            renpy.config.tl_directory,
-            language,
-            "common.rpy",
-        )
+        try:
+            # TODO 注释由官方生成器写，官方默认就是开着；这里写明，
+            # 免得被进程里别的调用改掉。
+            gen.todo = True
 
-        if not os.path.exists(strings_path):
+            # 对话统一生成空字符串（等同 Launcher 的"为翻译生成空字符串"）：
+            # "未翻译时显示原文"由显示层处理，不写进文件。
+            count = 0
+
+            for filename in livetl_translate_files():
+                gen.write_translates(filename, language, gen.empty_filter)
+                count += 1
+
+            # 界面字符串和菜单选项保留原文：
+            # 它们如果也是空的，切到新语言后按钮会变成空白，译者没法操作。
             gen.write_strings(language, gen.null_filter, 0, 299, False, [])
+        finally:
+            gen.close_tl_files()
+            livetl_unseed_existing_entries(seeded)
 
-        gen.close_tl_files()
-
-        # 官方 write_strings 的判重只看内存里的翻译表：目标语言还没加载时，
-        # 它会把已经写在 tl 里的条目再写一遍，于是同一个 old 出现两次 ——
-        # 而重复条目会让游戏启动直接报错。这里按文件全量查重清理一遍。
-        removed, _backup = livetl_clean_duplicate_strings(language, make_backup=False)
-
-        if removed:
-            livetl_log("generate_templates: 清理了 {} 条重复字符串条目".format(removed))
+        # 文件变了：字符串索引要重建；顺便清掉"只有表头、没有条目"的
+        # strings 块（这种块会让 Ren'Py 直接报 "expects a non-empty block"，
+        # 整个语言都加载不了）。
+        livetl_invalidate_string_index()
+        livetl_drop_empty_string_blocks(language)
 
         renpy.game.script.translator.languages.add(language)
 
@@ -408,11 +560,11 @@ init -50 python:
             pass
 
     def livetl_ensure_templates():
-        """确保当前项目里，目标语言的整套翻译模板已经生成过。
+        """首次进入时，补全一次目标语言的翻译模板。
 
-        每个项目只补全一次（靠 tl 目录里的标记文件判断）；
-        官方生成逻辑本身是幂等的，已经翻好的条目不会被覆盖。
-        想重新补全（例如剧本更新了）删掉那个标记文件即可。
+        只在"这个项目还没为这个语言补全过"时动手（靠 tl 目录里的标记文件
+        判断），不每次交互都扫一遍。剧本更新后想再补一次，到【设置】里
+        再点一次【开始翻译】——那条路径是无条件增量补全。
         """
         language = livetl_target_language()
 
@@ -422,7 +574,16 @@ init -50 python:
         if os.path.exists(livetl_mark_path(language)):
             return
 
-        count = livetl_generate_templates(language)
+        try:
+            count = livetl_generate_templates(language)
+        except Exception as e:
+            # 生成失败通常不是"下次就好了"的问题（目录只读、磁盘满……），
+            # 记下标记避免每次交互都重试一遍，把提示留给译者。
+            livetl_log("ensure_templates failed: {!r}".format(e))
+            livetl_set_status("自动补全 tl/{}/ 失败：{}".format(language, e))
+            livetl_mark_templates_done(language)
+            return
+
         livetl_mark_templates_done(language)
         livetl_log("ensure_templates: {!r} ({} files)".format(language, count))
 

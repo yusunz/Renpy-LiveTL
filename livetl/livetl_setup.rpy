@@ -41,7 +41,7 @@ init -20 python:
         return bool(livetl_setup_pending) or (bool(livetl_ask_language) and not persistent.livetl_language)
 
     def livetl_confirm_language():
-        """记下目标语言，并生成翻译模板。"""
+        """记下目标语言，并增量补全一次翻译模板。"""
         language = (store.livetl_language_input or "").strip() or livetl_language_default
         language = language.replace(" ", "_")
 
@@ -59,15 +59,27 @@ init -20 python:
         except Exception as e:
             livetl_log("change_language failed for {!r}: {}".format(language, e))
 
-        if os.path.exists(livetl_mark_path(language)):
-            # 这个语言已经生成过：直接开工，不重复生成
-            livetl_set_status("tl/{}/ 已存在，直接开始翻译".format(language))
-            livetl_log("setup: {!r} already generated".format(language))
-        else:
+        # 不管这个语言有没有生成过，都做一次增量补全 —— 与 Ren'Py SDK 的
+        # 「生成翻译」一致：已经翻好的条目原样保留，只补新增的台词/字符串。
+        # 有新增的文件里会留下 TODO 注释方便溯源（没有新增就不会有 TODO）。
+        try:
+            before = livetl_count_tl_entries(language)
             count = livetl_generate_templates(language)
-            livetl_mark_templates_done(language)
-            livetl_set_status("已生成 tl/{}/ 翻译模板".format(language))
-            livetl_log("setup: generated templates for {!r} ({} files)".format(language, count))
+            added = livetl_count_tl_entries(language) - before
+        except Exception as e:
+            # 生成失败不能把整个界面掀掉：报错留在状态栏，译者能看懂发生了什么
+            livetl_log("setup: 生成失败 {!r}".format(e))
+            livetl_set_status("生成 tl/{}/ 失败：{}".format(language, e))
+            return
+
+        livetl_mark_templates_done(language)
+
+        if added > 0:
+            livetl_set_status("tl/{}/ 已补全：新增 {} 条，按【重载】生效".format(language, added))
+        else:
+            livetl_set_status("tl/{}/ 已是最新，没有要补的条目".format(language))
+
+        livetl_log("setup: incremental generate for {!r} ({} files, {} new)".format(language, count, added))
 
     def livetl_open_setup():
         """回到语言设置界面。
