@@ -7,9 +7,12 @@
 livetl.log
 livetl_reload.log
 
-# 自备字体（不随仓库分发，见 README）
+# 字体目录：默认忽略，避免误提交他人自备的字体。
+# 例外是随插件附带的开源字体及其许可（思源黑体，SIL OFL）。
 livetl/fonts/*
 !livetl/fonts/README.md
+!livetl/fonts/LICENSE.txt
+!livetl/fonts/SourceHanSansSC-Regular.otf
 
 # 给 AI 助手的工作说明，不纳入版本库
 AGENTS.md

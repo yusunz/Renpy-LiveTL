@@ -56,8 +56,8 @@ init -100 python:
     # 面板字体。
     #   "" / None —— 跟随游戏自身的字体
     #   "xxx.ttf" —— 使用指定字体文件
-    # 字体需要自备，把文件放进 livetl/fonts/ 后在这里填路径，见 README。
-    livetl_font = ""
+    # 默认用随插件附带的开源字体（思源黑体简体，SIL OFL 许可）。
+    livetl_font = "livetl/fonts/SourceHanSansSC-Regular.otf"
 
     # ---------------------------------------------------------------------
     # 字体替换
@@ -68,11 +68,13 @@ init -100 python:
     livetl_replace_fonts = True
 
     # 替换用的字体文件（相对游戏目录）。
-    # 留空 = 不做字体替换，游戏原本的字体照常使用。
-    # 中文字体需要自备，见 README「字体」一节。
-    livetl_font_file = ""
+    # 默认用随插件附带的开源字体（思源黑体简体，SIL OFL 许可，
+    # 许可副本见 livetl/fonts/LICENSE.txt）。留空 = 不做字体替换。
+    livetl_font_file = "livetl/fonts/SourceHanSansSC-Regular.otf"
 
-    # 粗体用的字体文件；留空表示让 Ren'Py 自己处理加粗。
+    # 粗体用的字体文件。
+    # 留空表示让 Ren'Py 自行处理加粗 —— 仓库只附带了一个字重，
+    # 想要更精确的粗体，可以自备 Bold 字体后在这里填路径。
     livetl_font_file_bold = ""
 
     # 是否额外扫描游戏脚本，把脚本里写到的字体也纳入替换列表。

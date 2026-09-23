@@ -1,33 +1,31 @@
-# 字体目录（自备）
+# 字体目录
 
-这个目录**不包含任何字体文件**——中文字体需要你自己准备。
+## 随插件附带
 
-原因：常见的中文字体许可协议**禁止把字体文件随作品再分发**，
-所以本仓库不附带字体。
+| 文件 | 说明 |
+| --- | --- |
+| `SourceHanSansSC-Regular.otf` | 思源黑体简体（Source Han Sans SC）Regular 字重 |
+| `LICENSE.txt` | 该字体的 SIL Open Font License 1.1 许可 |
 
-## 怎么放
+思源黑体采用 OFL 1.1：允许随软件打包、再分发和商用，
+条件是**每一份副本都要带上版权声明和许可文件**。
 
-1. 下载一款免费可商用的中文字体，例如：
-   - **思源黑体**（SIL OFL 许可，可自由分发和修改）：https://github.com/adobe-fonts/source-han-sans/releases
-   - **Noto Sans SC**：https://fonts.google.com/noto/specimen/Noto+Sans+SC
-   - 或你手头任意附和你需求的 `.ttf` / `.otf` / `.ttc` 字体
-2. 把字体文件拷进这个目录，例如：
+> 分发本插件、或把字体打包进游戏发行时，请一并带上 `LICENSE.txt`。
 
-   ```
-   livetl/fonts/SourceHanSansSC-Regular.otf
-   livetl/fonts/SourceHanSansSC-Bold.otf
-   ```
+## 换成别的字体
 
-3. 打开 `livetl/livetl_config.rpy`，填上路径：
+把字体文件放进这个目录，然后在 `livetl/livetl_config.rpy` 里填路径：
 
-   ```renpy
-   livetl_font_file = "livetl/fonts/SourceHanSansSC-Regular.otf"
-   livetl_font_file_bold = "livetl/fonts/SourceHanSansSC-Bold.otf"
-   ```
+```renpy
+livetl_font_file      = "livetl/fonts/你的字体-Regular.otf"
+livetl_font_file_bold = "livetl/fonts/你的字体-Bold.otf"
+```
 
-留空表示不做字体替换，游戏原本的字体照常使用。
+这个目录默认被 `.gitignore` 忽略（只有上面附带的两个文件例外），
+所以你自己加进来的字体不会被提交。
 
 ## 注意
 
 - 请使用**静态字重**（`.otf` / `.ttf`）。可变字体（文件名常带 `VF`）在 Ren'Py 里
   不会被正常渲染，中文会显示成方块。
+- Ren'Py 虽然支持 `.ttc` / `.otc` 字体集合，但只能用集合里的**第一个**字体。

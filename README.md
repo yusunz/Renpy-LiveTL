@@ -17,7 +17,7 @@
   - [拾取模式](#拾取模式)
   - [查重体检](#查重体检)
 - [配置](#配置)
-- [字体（需要自备）](#字体需要自备)
+- [字体](#字体)
 - [工作原理](#工作原理)
 - [兼容性](#兼容性)
 - [已知限制](#已知限制)
@@ -153,34 +153,41 @@ tl 的模板条目里，例如 `_("Page {}")`、`_("SAVE [SLOT]\n%A, %B %d %Y, %
 | `livetl_dup_check_on_start` | `True` | 启动时自动检查重复字符串条目（只提示，不自动改） |
 | `livetl_debug` | `True` | 是否写 `game/livetl.log` |
 
-## 字体（需要自备）
+## 字体
 
-汉化后原文的字体往往不含中文字形（显示成方块）。插件可以扫描游戏脚本里用到的
-字体，并通过 Ren'Py 自带的 `config.font_replacement_map` 把它们统一替换成
-**你自备的中文字体**。
+汉化后原文的字体往往不含中文字形（显示成方块）。插件会扫描游戏脚本里用到的字体，
+并通过 Ren'Py 自带的 `config.font_replacement_map` 把它们统一替换成一个中文字体。
 
-**本仓库不附带任何字体文件**——常见中文字体的许可协议
-禁止把字体文件随作品再分发，所以字体需要你自己准备。
+随插件附带：
 
-1. 下载一款支持中文、且允许再分发的字体，推荐：
-   - **思源黑体**（SIL OFL 许可，可自由分发、修改）：<https://github.com/adobe-fonts/source-han-sans/releases>
-   - **Noto Sans SC**：<https://fonts.google.com/noto/specimen/Noto+Sans+SC>
-   - 或任何你手头的中文字体
-2. 把字体文件放进 `livetl/fonts/`（该目录下的字体已被 `.gitignore` 排除）
-3. 在 `livetl/livetl_config.rpy` 里填上路径：
+| 文件 | 说明 |
+| --- | --- |
+| `livetl/fonts/SourceHanSansSC-Regular.otf` | 思源黑体简体（Source Han Sans SC），Regular 字重 |
+| `livetl/fonts/LICENSE.txt` | 该字体的 SIL Open Font License 1.1 许可 |
 
-   ```renpy
-   livetl_replace_fonts = True
-   livetl_font_file      = "livetl/fonts/SourceHanSansSC-Regular.otf"
-   livetl_font_file_bold = "livetl/fonts/SourceHanSansSC-Bold.otf"
-   ```
+粗体交给 Ren'Py 自行处理——仓库只附带了一个字重；想要更精确的粗体，可以自备 Bold 字体。
 
-   留空（默认）表示**不做字体替换**，游戏原本的字体照常使用。
+**关于许可**：思源黑体采用 OFL 1.1，允许随软件打包、再分发和商用，条件是
+**每一份副本都要带上版权声明和许可文件**。所以：
 
-> **注意**：请用**静态字重**（`.otf` / `.ttf`）。
-> 可变字体（文件名常带 `VF`）在 Ren'Py 里不会渲染，中文会显示成方块。
-> 另外 Ren'Py 虽然支持 `.ttc` / `.otc` 字体集合，但只能用集合里的**第一个**字体，
-> 所以不推荐用 Super OTC 这类合集。
+- 分发本插件时，请连同 `livetl/fonts/LICENSE.txt` 一起
+- 把字体打包进游戏发行时，游戏那一份同样要带上这个许可文件
+
+### 换成别的字体
+
+把字体放进 `livetl/fonts/`，再改 `livetl/livetl_config.rpy`：
+
+```renpy
+livetl_font_file      = "livetl/fonts/你的字体-Regular.otf"
+livetl_font_file_bold = "livetl/fonts/你的字体-Bold.otf"
+```
+
+留空表示**不做字体替换**，游戏原本的字体照常使用。两点注意：
+
+- 请用**静态字重**（`.otf` / `.ttf`）。可变字体（文件名常带 `VF`）在 Ren'Py 里
+  不会渲染，中文会显示成方块。
+- Ren'Py 虽然支持 `.ttc` / `.otc` 字体集合，但只能用集合里的**第一个**字体，
+  所以不推荐 Super OTC 这类合集。
 
 ## 工作原理
 
@@ -238,6 +245,6 @@ tl 的模板条目里，例如 `_("Page {}")`、`_("SAVE [SLOT]\n%A, %B %d %Y, %
 | --- | --- |
 | 本项目代码 | MIT，见 `LICENSE` |
 | 借鉴项目（Renpy_fonts_replacement） | MIT，见 `licenses/Renpy_fonts_replacement-LICENSE.txt` |
-| 字体 | **不随仓库分发**，由使用者自备（见「字体（需要自备）」一节） |
+| 内置字体（思源黑体） | SIL OFL 1.1，见 `livetl/fonts/LICENSE.txt` |
 
 **关于 Ren'Py 本身**：本项目是第三方插件，**不包含也不分发 Ren'Py 引擎**
