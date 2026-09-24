@@ -495,13 +495,17 @@ init -90 python:
             * 打字 / 粘贴 / 输入法上屏 → 先删掉选区，官方实现再插入新内容；
             * 退格 / 删除 → 删掉选区，这一次按键就到此为止（不再多删一个字）；
             * 左右方向键 / Home / End → 收起到选区的一端；
-            * 复制 → 复制选中的那一段（官方实现只会复制全文）。
+            * 复制 → 复制选中的那一段（官方实现只会复制全文）；
+            * 剪切 → 复制选中的那一段再删掉它。
             """
             if not self._livetl_has_selection():
                 return
 
             if renpy.map_event(ev, "input_copy"):
                 self._livetl_copy_selection()
+                raise renpy.display.core.IgnoreEvent()
+
+            if self._livetl_cut_selection(ev):
                 raise renpy.display.core.IgnoreEvent()
 
             if self._livetl_deletes(ev):
@@ -536,6 +540,24 @@ init -90 python:
             self.sel_end = len(self.content)
             self.drag_anchor = None
             self._livetl_move_caret(self.sel_end)
+
+            return True
+
+        def _livetl_cut_selection(self, ev):
+            """Ctrl+X / Cmd+X：剪切（复制到剪贴板，再删掉选区）。
+
+            官方 Input 连"复制"都只会复制全文，更没有剪切。没有选中内容时
+            不动这个键：单行输入框里 Ctrl+X 空剪是没意义的，别把整条译文
+            清掉。
+            """
+            if not (renpy.map_event(ev, "ctrl_noshift_K_x") or renpy.map_event(ev, "meta_noshift_K_x")):
+                return False
+
+            if not self._livetl_has_selection():
+                return False
+
+            self._livetl_copy_selection()
+            self._livetl_replace_selection("")
 
             return True
 
