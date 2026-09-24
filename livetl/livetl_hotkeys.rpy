@@ -14,11 +14,16 @@
 # 为什么不许绑裸字母：screen 的 key 会变成一个 Keymap displayable，它排在
 # 输入框前面（实测面板 screen 的子树是 Keymap、Keymap、…、LiveTLInput），
 # 事件按顺序分发，绑了字母键译者就打不出那个字了。
+#
+# 为什么修饰键本身（Ctrl / Shift / Alt / Win）也不许绑：改键时按 Ctrl+S，
+# 先到的是 Ctrl 那一下，它的 keysym 带着 ctrl 前缀（实测绑出来是 Ctrl+LCTRL），
+# 而绑上之后引擎会把整片 Ctrl 组合都交给它 —— 捕获层遇到修饰键要接着等
+# 后面那个真正的键。
+#
+# 捕获期间按住 Ctrl 还会触发引擎的快进：它的判断跑在整个渲染树之前
+# （renpy.display.behavior.skipping() 在 root_widget.event() 之上），
+# 捕获层拦不住它开始，只能在它开始之后立刻停掉。
 # =============================================================================
-
-# 正在等译者按下一个键的动作名；"" = 不在捕获态
-default livetl_hotkey_capture = ""
-
 
 init -50 python:
     import pygame
@@ -43,6 +48,18 @@ init -50 python:
 
     # 输入框自己在用的组合键（见 livetl_engine_input.rpy）
     _livetl_hotkey_input_combo_keys = frozenset(["K_a", "K_x", "K_c", "K_v", "K_z", "K_y"])
+
+    # 修饰键本身：绑上它会抢走所有同前缀的组合键，捕获时也要跳过它。
+    # 同一个物理键在不同版本里的名字不止一个（SDL 的 LCTRL / LGUI / LSUPER、
+    # 老 pygame 的 LMETA），所以把见过的名字都写上，按名字比对。
+    _livetl_hotkey_modifier_keys = frozenset([
+        "K_LCTRL", "K_RCTRL",
+        "K_LSHIFT", "K_RSHIFT",
+        "K_LALT", "K_RALT",
+        "K_LGUI", "K_RGUI",
+        "K_LSUPER", "K_RSUPER",
+        "K_LMETA", "K_RMETA",
+    ])
 
     # 输入框要用、或者游戏几乎肯定会用的单键
     _livetl_hotkey_reserved_keys = frozenset([
@@ -158,6 +175,10 @@ init -50 python:
         if not hasattr(pygame.constants, key):
             return False, "引擎不认识这个键：{}".format(key)
 
+        if key in _livetl_hotkey_modifier_keys:
+            return False, "{} 是修饰键本身，绑上它会抢走所有 Ctrl / Alt / Shift 组合".format(
+                livetl_hotkey_label(keysym))
+
         has_modifier = bool(modifiers & {"ctrl", "osctrl", "alt", "meta", "shift"})
 
         if not has_modifier:
@@ -184,8 +205,31 @@ init -50 python:
         return ""
 
     def livetl_hotkey_bound(action):
-        """动作当前生效的快捷键（就是配置里的值，"K_F8"）。"""
-        return getattr(store, livetl_hotkey_config_name(action), "") or ""
+        """动作当前生效的快捷键（配置里的值，"K_F8"）；配置里留着用不了的值时当作没绑。
+
+        用不了的值有两类来源：手写配置写错，和早期版本踩坑绑出来的
+        Ctrl+LCTRL（那时捕获层把 Ctrl 那一下当成了要绑的键）。
+        后者尤其要挡住 —— 引擎对 K_LCTRL 会跳过 ctrl 判断，
+        绑上它等于"按任意 Ctrl 都触发这个动作"。
+        """
+        keysym = getattr(store, livetl_hotkey_config_name(action), "") or ""
+
+        if not keysym:
+            return ""
+
+        ok, why = livetl_hotkey_check(keysym)
+
+        if ok:
+            return keysym
+
+        # 每帧都会被问到，所以一个动作只记一次日志
+        marker = "livetl_hotkey_bad_" + str(action)
+
+        if not livetl_state_get(marker):
+            livetl_state_set(marker, True)
+            livetl_log("hotkey ignored: {} = {!r}（{}）".format(action, keysym, why))
+
+        return ""
 
     def livetl_hotkey_owner(keysym, skip=None):
         """这个键已经绑给哪个动作了；没人用返回 None。"""
@@ -266,6 +310,60 @@ init -50 python:
         return True, ""
 
     # ---------------------------------------------------------------------
+    # 捕获态：等译者按下一个可以绑的键
+    #
+    # 捕获态放 session 不放 store：它是界面状态，不该跟着"回退（Back）"
+    # 一起回滚（与面板的显示状态同一个道理，见 livetl_state.rpy）。
+    # ---------------------------------------------------------------------
+
+    def _livetl_hotkey_stop_skipping(reason):
+        """停掉正在跑（或刚被 Ctrl 触发）的快进；真的停掉了才记一行日志。
+
+        引擎的快进判断跑在整个渲染树之前，捕获层拦不住它开始，只能在它开始
+        之后立刻停掉；已经在跑的那种更不会自己停（它等的是 Ctrl 抬起）。
+        不停掉的话，译者在设置页按住 Ctrl，剧情会自己往下走。
+        """
+        if livetl_engine_skipping_stop():
+            livetl_log("hotkey capture: 停掉快进（{}）".format(reason))
+
+    def livetl_hotkey_capture_action():
+        """正在等按键的动作名；不在捕获态时是 ""。"""
+        return livetl_state_get("livetl_hotkey_capture", "") or ""
+
+    def livetl_hotkey_capture_label():
+        """捕获态在等的那个动作的说明；不在捕获态时是 ""（界面用）。"""
+        action = livetl_hotkey_capture_action()
+
+        if not action:
+            return ""
+
+        return livetl_hotkey_action_label(action)
+
+    def livetl_hotkey_capture_set(action):
+        """进入 / 离开捕获态。"""
+        livetl_state_set("livetl_hotkey_capture", action or "")
+
+        if action:
+            # 上一次误触留下的快进先停掉，免得一进设置页剧情就在自己走
+            _livetl_hotkey_stop_skipping("进入捕获态")
+
+    def livetl_hotkey_capture_poll():
+        """每帧看一眼捕获层还在不在界面上，不在就结束捕获。
+
+        按键只送给渲染树里的 displayable：面板一旦被折叠（或切到拾取层），
+        捕获层就不在树上了，这个捕获态再没人收尾，会在下次打开设置页时
+        突然接着等。这里按界面事实对齐。
+        """
+        if not livetl_hotkey_capture_action():
+            return
+
+        if store.livetl_visible and (not store.livetl_pick_active) and livetl_need_setup():
+            return
+
+        livetl_log("hotkey capture: 捕获层离开界面，结束捕获")
+        livetl_hotkey_capture_set("")
+
+    # ---------------------------------------------------------------------
     # 设置界面用的一组包装：读行、进入捕获态、处理捕获到的按键
     # ---------------------------------------------------------------------
 
@@ -278,7 +376,7 @@ init -50 python:
 
     def livetl_hotkey_capture_start(action):
         """点【改键】：进入捕获态，等下一个按键。"""
-        store.livetl_hotkey_capture = action
+        livetl_hotkey_capture_set(action)
         livetl_set_status("请按下要绑给【{}】的键：Esc 取消，退格改成不绑定".format(
             livetl_hotkey_action_label(action)))
         livetl_log("hotkey capture start: {}".format(action))
@@ -286,7 +384,7 @@ init -50 python:
 
     def livetl_hotkey_clear_row(action):
         """设置界面里点【清除】：把这一行改成不绑定，结果写进状态栏。"""
-        store.livetl_hotkey_capture = ""
+        livetl_hotkey_capture_set("")
         ok, note = livetl_hotkey_clear(action)
 
         if not ok:
@@ -304,13 +402,17 @@ init -50 python:
     def livetl_hotkey_capture_key(ev):
         """捕获态收到一个事件；返回 True 表示这个事件已经用掉了。
 
-        Esc 取消、退格 / 删除恢复缺省，其余按键交给 livetl_hotkey_bind()
+        Esc 取消、退格 / 删除恢复缺省；只按下修饰键本身时接着等下一个键
+        （按 Ctrl+S 时 Ctrl 那一下先到），其余按键交给 livetl_hotkey_bind()
         校验（裸字母数字、输入框占用的组合会被拒绝）。
         """
-        action = store.livetl_hotkey_capture
+        action = livetl_hotkey_capture_action()
 
         if not action or ev.type != pygame.KEYDOWN:
             return False
+
+        # Ctrl 那一下会先被引擎当成快进（它在渲染树之前判断），马上停掉
+        _livetl_hotkey_stop_skipping("捕获中")
 
         keysym = livetl_hotkey_from_event(ev)
 
@@ -319,7 +421,7 @@ init -50 python:
             return True
 
         if keysym == "K_ESCAPE":
-            store.livetl_hotkey_capture = ""
+            livetl_hotkey_capture_set("")
             livetl_set_status("已取消改键")
             livetl_restart()
             return True
@@ -328,10 +430,16 @@ init -50 python:
             livetl_hotkey_clear_row(action)
             return True
 
+        if livetl_hotkey_split(keysym)[1] in _livetl_hotkey_modifier_keys:
+            # 只按住修饰键不算一个键：留在这个状态里等后面那个真正的键
+            livetl_set_status("Ctrl / Alt / Shift 本身不能绑：请按住它再按一个键，Esc 取消")
+            livetl_restart()
+            return True
+
         ok, note = livetl_hotkey_bind(action, keysym)
 
         if ok:
-            store.livetl_hotkey_capture = ""
+            livetl_hotkey_capture_set("")
             message = "【{}】已绑到 {}".format(livetl_hotkey_action_label(action), livetl_hotkey_label(keysym))
 
             if note:
@@ -344,3 +452,10 @@ init -50 python:
 
         livetl_restart()
         return True
+
+
+init 10 python:
+
+    # 每帧对齐一次"捕获层还在不在界面上"：没在捕获态时只查一次 state，很便宜
+    if livetl_hotkey_capture_poll not in config.periodic_callbacks:
+        config.periodic_callbacks.append(livetl_hotkey_capture_poll)

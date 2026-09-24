@@ -591,6 +591,27 @@ init -90 python:
         except Exception:
             return False
 
+    def livetl_engine_skipping_stop():
+        """停掉正在进行的快进；没有在快进时返回 False。
+
+        按 Ctrl 会开始快进，而快进的判断跑在整个渲染树之前（见
+        livetl_hotkeys.rpy 的说明），所以改快捷键时要能主动把它停掉，
+        否则一次误按会一直快进到遇到没读过的内容。
+
+        config.skipping 在文档里查不到（doc/config.html 没有它），
+        按规则收在本文件里。
+        """
+        if not getattr(config, "skipping", None):
+            return False
+
+        try:
+            config.skipping = None
+        except Exception as e:
+            livetl_engine_note_error("skipping/stop", e)
+            return False
+
+        return True
+
     # ---------------------------------------------------------------------
     # 契约层：字体与文本排版缓存
     # ---------------------------------------------------------------------
@@ -661,6 +682,9 @@ init -90 python:
             ),
             "engine seam: text_cache={}".format(
                 flag(hasattr(getattr(renpy.text, "text", None), "layout_cache_clear")),
+            ),
+            "engine seam: skipping={}".format(
+                flag(hasattr(config, "skipping")),
             ),
         ]
 

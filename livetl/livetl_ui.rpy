@@ -357,8 +357,9 @@ screen livetl_panel():
                     add livetl_font_drop_target
 
                 # 快捷键：点【改键】再按一个键就能绑上
-                if livetl_hotkey_capture:
-                    $ _livetl_capture_label = livetl_hotkey_action_label(livetl_hotkey_capture)
+                $ _livetl_capture_label = livetl_hotkey_capture_label()
+
+                if _livetl_capture_label:
                     text "按下要绑给【[_livetl_capture_label]】的键：Esc 取消，退格恢复缺省" style "livetl_status"
                 else:
                     text "快捷键" style "livetl_source"
