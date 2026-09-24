@@ -87,6 +87,7 @@
 | 看效果 | 点【重载】：保存进度 → 重载脚本 → 回到同一句，画面即新译文 |
 | 连续翻译 | 可以只提交不重载，翻完一段再统一重载 |
 | 折叠 / 展开 | 点【折叠】，屏幕角落留一个小按钮；快捷键 `F8` |
+| 改快捷键 | 点【设置】→ 快捷键区点【改键】，再按你想用的键（Esc 取消，退格改成不绑定）。字母和数字要留给输入框打字，所以只能绑功能键或带 Ctrl / Alt / Shift 的组合；改动会写回 `livetl_config.rpy`（原文件先备份成 `.bak`），跟着项目源码走 |
 | 改设置 | 点【设置】回到设置界面（换语言、改显示方式、换字体） |
 | 换字体 | 点【设置】→【选择字体】从列表里挑一个；桌面平台也可以把字体文件直接拖进游戏窗口 |
 | 剧本更新后补条目 | 点【设置】→ 再点一次【开始翻译】：增量补全新台词与新界面文本 |
@@ -147,8 +148,11 @@ tl 的模板条目里，例如 `_("Page {}")`、`_("SAVE [SLOT]\n%A, %B %d %Y, %
 | `livetl_language` | `"schinese"` | 缺省目标语言（`tl` 目录名），也是设置界面预填的值 |
 | `livetl_show_setup_on_start` | `False` | 是否每次启动都先显示设置界面；默认只在还没定过目标语言时问一次 |
 | `livetl_show_source_when_empty` | `True` | 没翻过的句子显示原文（`False` 则留空） |
-| `livetl_hotkey` | `"K_F8"` | 面板开关快捷键 |
-| `livetl_pick_hotkey` | `"K_F9"` | 拾取模式快捷键 |
+| `livetl_hotkey` | `"K_F8"` | 显示 / 折叠面板（面板折叠时也有效） |
+| `livetl_pick_hotkey` | `"K_F9"` | 拾取模式（面板折叠时也有效） |
+| `livetl_submit_hotkey` | `""` | 提交；只在面板展开时生效，留空 = 不绑 |
+| `livetl_reload_hotkey` | `""` | 重载；只在面板展开时生效，留空 = 不绑 |
+| `livetl_clear_hotkey` | `""` | 清空（同样会先确认）；只在面板展开时生效 |
 | `livetl_position` | `"top-right"` | 面板位置：`top-right` / `bottom-right` |
 | `livetl_panel_width` | `680` | 面板宽度（像素） |
 | `livetl_input_select_color` | `"#ffcc6666"` | 输入框里选中文字时的底色（带透明度的颜色写法） |

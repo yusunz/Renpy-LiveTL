@@ -844,6 +844,13 @@ init -50 python:
         else:
             livetl_set_status("写入失败，详见 livetl.log")
 
+    def livetl_clear_action():
+        """【清空】的 action：按钮与快捷键共用，确认文案只有一处。"""
+        return Confirm(
+            "清空当前条目？\n对话只清掉译文；字符串条目会从 tl 里删除。",
+            Function(livetl_clear_entry),
+        )
+
     def livetl_clear_entry():
         """清空当前条目。
 

@@ -6,6 +6,9 @@
 # =============================================================================
 
 init -100 python:
+    import os
+    import re
+    import shutil
 
     # ---------------------------------------------------------------------
     # 版本
@@ -49,11 +52,27 @@ init -100 python:
     # 界面
     # ---------------------------------------------------------------------
 
-    # 面板开关快捷键（Ren'Py 的 keysym 名称，见 config.keymap）。
+    # 快捷键（Ren'Py 的 keysym 名称，见 config.keymap）。
+    # 译者可以在设置界面里改，改完记在 persistent 里；这里是缺省值，留空 = 不绑定。
+    #
+    # 前两个是全局的（面板折叠后也要能把面板叫回来），后三个只在面板展开时生效
+    # ——它们只在写字时才有意义，折叠后不绑，免得抢走游戏自己的按键。
+    #
+    # 绑的时候要用功能键，或者带 Ctrl / Alt / Shift 的组合：
+    # 裸的字母数字、方向键、回车空格这些要留给输入框打字。
     livetl_hotkey = "K_F8"
 
-    # 拾取模式快捷键：进入后在画面上点选要翻译的文本。
+    # 拾取模式：进入后在画面上点选要翻译的文本。
     livetl_pick_hotkey = "K_F9"
+
+    # 提交当前译文。
+    livetl_submit_hotkey = ""
+
+    # 重载脚本（保存 → 重载 → 回到同一句）。
+    livetl_reload_hotkey = ""
+
+    # 清空当前条目（和按钮一样会先确认）。
+    livetl_clear_hotkey = ""
 
     # ---------------------------------------------------------------------
     # 字体
@@ -96,3 +115,87 @@ init -100 python:
 
     # 是否把调试信息写入 game/livetl.log（排查问题时打开）。
     livetl_debug = True
+
+    # ---------------------------------------------------------------------
+    # 改写本文件用的工具
+    #
+    # 字体和快捷键都是"译者在界面上点一下，就在配置里改一行"，共用这几个
+    # 函数。改之前先把原文件备份成 .bak（只留最近一次），改坏了能回头。
+    # ---------------------------------------------------------------------
+
+    def livetl_config_path():
+        """livetl_config.rpy 的绝对路径；找不到返回 None。
+
+        插件一般放在 game/livetl/ 下，但目录名可能被改过：先问引擎要文件
+        清单，再退回默认位置。打包后的游戏里往往只剩 .rpyc，这时改不了
+        配置，调用方会把原因告诉译者。
+        """
+        gamedir = renpy.config.gamedir
+        names = []
+
+        try:
+            names = [n for n in renpy.list_files() if n.endswith("livetl_config.rpy")]
+        except Exception:
+            pass
+
+        names.append("livetl/livetl_config.rpy")
+
+        for name in names:
+            path = os.path.join(gamedir, name.replace("/", os.sep))
+
+            if os.path.isfile(path):
+                return path
+
+        return None
+
+    def livetl_config_backup(path):
+        """把配置文件备份成 xxx.bak，已有的直接覆盖。
+
+        只留最近一次改动之前的版本：换字体、改快捷键都是反复试的过程，
+        每改一次攒一个备份很快就把目录堆满，而真要回退的通常就是上一个版本。
+        """
+        backup = path + ".bak"
+        shutil.copyfile(path, backup)
+
+        return backup
+
+    def livetl_config_set_value(name, literal, path=None):
+        """把配置里 `<name> = ...` 那一行改成 `literal`（改之前先备份）。
+
+        `literal` 是写进源码的字面量，已经带引号（例如 '"K_F8"'）。
+        `path` 是给测试用的口子，正常调用不用传。
+        返回 (备份文件名, 错误信息)；出错时备份文件名是 None。
+        """
+        name = str(name or "")
+
+        if not name:
+            return None, "没有给出要改的配置名"
+
+        if path is None:
+            path = livetl_config_path()
+
+        if not path:
+            return None, "找不到 livetl_config.rpy"
+
+        try:
+            # newline="" —— 原样读、原样写，不动文件本来的换行符
+            with open(path, "r", encoding="utf-8", newline="") as f:
+                text = f.read()
+        except Exception as e:
+            return None, "读配置失败：{}".format(e)
+
+        pattern = re.compile(r"^([ \t]*)" + re.escape(name) + r"[ \t]*=[ \t]*.*$", re.MULTILINE)
+        new_text, count = pattern.subn(lambda m: m.group(1) + name + " = " + literal, text, count=1)
+
+        if not count:
+            return None, "配置里没有 {} 这一行".format(name)
+
+        try:
+            backup = livetl_config_backup(path)
+
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                f.write(new_text)
+        except Exception as e:
+            return None, "写配置失败：{}".format(e)
+
+        return os.path.basename(backup), ""

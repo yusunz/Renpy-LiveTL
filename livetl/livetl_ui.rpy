@@ -140,6 +140,28 @@ init python:
 
     livetl_font_drop_target = LiveTLFontDropTarget()
 
+    class LiveTLHotkeyCapture(renpy.Displayable):
+        """接住"改键"时按下的那一个键。
+
+        和字体拖放层同一个套路：引擎只把事件交给渲染树里的 displayable，
+        所以设置界面要挂上这一层（它自己不画东西）。不在捕获态时它什么都
+        不做，事件照常往下走。
+        """
+
+        def __init__(self, **kwargs):
+            renpy.Displayable.__init__(self, **kwargs)
+
+        def render(self, width, height, st, at):
+            return renpy.Render(1, 1)
+
+        def event(self, ev, x, y, st):
+            if livetl_hotkey_capture_key(ev):
+                return 0
+
+            return None
+
+    livetl_hotkey_capture_target = LiveTLHotkeyCapture()
+
     # ---------------------------------------------------------------------
     # 设置界面里的字体操作
     # ---------------------------------------------------------------------
@@ -191,12 +213,32 @@ init 10 python:
 screen livetl_panel():
     zorder 500
 
-    # 快捷键：显示 / 折叠面板
-    key livetl_hotkey action Function(livetl_toggle_visible)
+    # 全局快捷键：显示 / 折叠面板、进入拾取模式。
+    # 这两个折叠之后也要能用（否则面板收起来了就叫不回来），挂在屏幕顶层。
+    $ _livetl_key_toggle = livetl_hotkey_bound("toggle")
+    $ _livetl_key_pick = livetl_hotkey_bound("pick")
 
-    # 快捷键：进入拾取模式（拾取状态下由拾取层自己处理退出）
-    if not livetl_pick_active:
-        key livetl_pick_hotkey action Function(livetl_pick_enter)
+    if _livetl_key_toggle:
+        key _livetl_key_toggle action Function(livetl_toggle_visible)
+
+    if _livetl_key_pick and not livetl_pick_active:
+        key _livetl_key_pick action Function(livetl_pick_enter)
+
+    # 只在面板展开时生效的快捷键：提交 / 重载 / 清空。
+    # 它们只在写字时有意义，折叠后不绑，免得抢走游戏自己的按键。
+    if livetl_visible and (not livetl_pick_active) and (not livetl_need_setup()) and (livetl_mode != "dup"):
+        $ _livetl_key_submit = livetl_hotkey_bound("submit")
+        $ _livetl_key_reload = livetl_hotkey_bound("reload")
+        $ _livetl_key_clear = livetl_hotkey_bound("clear")
+
+        if _livetl_key_submit:
+            key _livetl_key_submit action Function(livetl_submit)
+
+        if _livetl_key_reload:
+            key _livetl_key_reload action Function(livetl_reload)
+
+        if _livetl_key_clear:
+            key _livetl_key_clear action livetl_clear_action()
 
     # 面板位置（右上角或右下角）
     $ _bottom = (livetl_position == "bottom-right")
@@ -314,6 +356,30 @@ screen livetl_panel():
 
                     add livetl_font_drop_target
 
+                # 快捷键：点【改键】再按一个键就能绑上
+                if livetl_hotkey_capture:
+                    $ _livetl_capture_label = livetl_hotkey_action_label(livetl_hotkey_capture)
+                    text "按下要绑给【[_livetl_capture_label]】的键：Esc 取消，退格恢复缺省" style "livetl_status"
+                else:
+                    text "快捷键" style "livetl_source"
+                    text "字母和数字要留给输入框打字，绑的时候请用功能键，或者加 Ctrl / Alt / Shift" size 16 style "livetl_source"
+
+                    for _livetl_hotkey_row in livetl_hotkey_rows():
+                        hbox:
+                            spacing 8
+
+                            text "    [_livetl_hotkey_row[1]]" style "livetl_source" xsize 200
+                            text "[_livetl_hotkey_row[2]]" style "livetl_source" xsize 90
+                            textbutton "改键":
+                                style "livetl_action"
+                                action Function(livetl_hotkey_capture_start, _livetl_hotkey_row[0])
+                            textbutton "清除":
+                                style "livetl_action"
+                                action Function(livetl_hotkey_clear_row, _livetl_hotkey_row[0])
+
+                # 捕获层：点了【改键】之后由它接住下一个按键
+                add livetl_hotkey_capture_target
+
                 # 设置界面也要有反馈：否则点【检查重复】之类的操作看不到结果
                 if livetl_status:
                     text "[livetl_status]" style "livetl_status"
@@ -391,10 +457,7 @@ screen livetl_edit_body():
         textbutton "提交" style "livetl_action" action Function(livetl_submit)
         textbutton "清空":
             style "livetl_action"
-            action Confirm(
-                "清空当前条目？\n对话只清掉译文；字符串条目会从 tl 里删除。",
-                Function(livetl_clear_entry),
-            )
+            action livetl_clear_action()
         textbutton "重载" style "livetl_action" action Function(livetl_reload)
         textbutton "拾取" style "livetl_action" action Function(livetl_pick_enter)
 

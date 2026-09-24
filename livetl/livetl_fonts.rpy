@@ -241,84 +241,13 @@ init -50 python:
 
         return _livetl_font_rel(name), ""
 
-    # ---------------------------------------------------------------------
-    # 配置文件：livetl_font 那一行
-    # ---------------------------------------------------------------------
-
-    # 只认 livetl_font 自己那一行（livetl_panel_font 不会被匹配到）
-    _livetl_config_font_line = re.compile(r"^([ \t]*)livetl_font[ \t]*=[ \t]*.*$", re.MULTILINE)
-
-    def livetl_config_path():
-        """livetl_config.rpy 的绝对路径；找不到返回 None。
-
-        插件一般放在 game/livetl/ 下，但目录名可能被改过：先问引擎要
-        文件清单，再退回默认位置。打包后的游戏里往往只剩 .rpyc，
-        这时改不了配置，调用方会把原因告诉译者。
-        """
-        gamedir = renpy.config.gamedir
-        names = []
-
-        try:
-            names = [n for n in renpy.list_files() if n.endswith("livetl_config.rpy")]
-        except Exception:
-            pass
-
-        names.append("livetl/livetl_config.rpy")
-
-        for name in names:
-            path = os.path.join(gamedir, name.replace("/", os.sep))
-
-            if os.path.isfile(path):
-                return path
-
-        return None
-
-    def _livetl_config_backup(path):
-        """把配置文件备份成 xxx.bak，已有的直接覆盖。
-
-        只留最近一次改动之前的版本：换字体是反复试的过程，
-        每改一次攒一个备份很快就把目录堆满，而真要回退的通常
-        就是上一个版本。
-        """
-        backup = path + ".bak"
-        shutil.copyfile(path, backup)
-
-        return backup
-
     def livetl_config_set_font(rel_path, path=None):
         """把配置文件里的 livetl_font 改成 rel_path（改之前先备份）。
 
         `path` 是给测试用的口子，正常调用不用传。
         返回 (备份文件名, 错误信息)；出错时备份文件名是 None。
         """
-        if path is None:
-            path = livetl_config_path()
-
-        if not path:
-            return None, "找不到 livetl_config.rpy"
-
-        try:
-            # newline="" —— 原样读、原样写，不动文件本来的换行符
-            with open(path, "r", encoding="utf-8", newline="") as f:
-                text = f.read()
-        except Exception as e:
-            return None, "读配置失败：{}".format(e)
-
-        line = 'livetl_font = "{}"'.format(rel_path)
-        new_text, count = _livetl_config_font_line.subn(lambda m: m.group(1) + line, text, count=1)
-
-        if not count:
-            return None, "配置里没有 livetl_font 这一行"
-
-        try:
-            backup = _livetl_config_backup(path)
-
-            with open(path, "w", encoding="utf-8", newline="") as f:
-                f.write(new_text)
-        except Exception as e:
-            return None, "写配置失败：{}".format(e)
-
-        return os.path.basename(backup), ""
+        return livetl_config_set_value("livetl_font", '"{}"'.format(rel_path), path=path)
 
     # ---------------------------------------------------------------------
     # 换字体：改配置 + 立即生效
