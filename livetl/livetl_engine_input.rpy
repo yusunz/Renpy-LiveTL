@@ -1,5 +1,5 @@
 # =============================================================================
-# LiveTL —— 引擎隔离层：面板输入框（鼠标定位光标、拖拽选区）
+# LiveTL —— 引擎隔离层：面板输入框（鼠标定位光标、拖拽选区、撤销 / 重做）
 #
 # 这个文件是"输入框"这一组能力的适配层，规则与 livetl_engine.rpy 相同：
 #   * 未文档化的引擎接口只能出现在三个适配层文件里：livetl_engine.rpy、
@@ -242,12 +242,15 @@ init -90 python:
         return rects
 
     class LiveTLInput(renpy.display.behavior.Input):
-        """面板输入框：官方 Input + 鼠标定位光标 + 拖拽选区。
+        """面板输入框：官方 Input + 鼠标定位光标 + 拖拽选区 + 撤销 / 重做。
 
         官方 Input 只认键盘（8.1.1 / 8.5.3 都是）：鼠标点击既不会移动光标，
         也不会被消费 —— 于是"点输入框"等于"点游戏画面"，对话会被推进一句，
         面板内容随即被新台词顶掉。这里补上鼠标该有的行为；键盘、输入法、
         方向键、Ctrl+V 仍旧走官方实现，不重复实现引擎逻辑。
+
+        撤销 / 重做（Ctrl+Z / Ctrl+Y）也是官方没有的：历史只记输入框自己的
+        内容，不动已经写回 tl 的文件，也不动游戏回退。
 
         实例由 livetl_engine_input_widget() 创建并复用：控件带着光标位置与
         选区，界面每次刷新都重建的话光标会跳回末尾。
@@ -284,6 +287,22 @@ init -90 python:
 
             self.select_rgba = _livetl_engine_input_color(select_color)
 
+            # 撤销 / 重做历史：每个控件一份（面板上同时有语言与译文两个输入框）
+            self.undo_stack = []
+            self.redo_stack = []
+
+            # 这一次事件开始前的状态，以及这次事件有没有真的改到内容
+            self.edit_before = None
+            self.edit_touched = False
+
+            # 上一次"净效果是插入一个字符"的编辑（结束位置、时间），
+            # 用来把连续打字合并成一步
+            self.last_edit_end = None
+            self.last_edit_time = -10.0
+
+            # 正在恢复历史：恢复过程本身不再记进历史
+            self.restoring = False
+
         # -----------------------------------------------------------------
         # 选区状态（供内部与自检使用）
         # -----------------------------------------------------------------
@@ -305,6 +324,137 @@ init -90 python:
             return self.sel_end > self.sel_start
 
         # -----------------------------------------------------------------
+        # 撤销与重做
+        #
+        # 官方 Input 没有撤销，这里自己记：每次"译者真的改了内容"之前存一份
+        # 快照（内容 + 光标 + 选区），Ctrl+Z 恢复它；连续打字合并成一步，
+        # 不然改一句话要按十几次。Ctrl+Y / Ctrl+Shift+Z 重做。
+        #
+        # 历史只属于"当前这一条"：内容被外面换掉（新台词、切到别的菜单条目）
+        # 就清空，免得 Ctrl+Z 把上一条的译文撤进当前输入框。撤销只作用于
+        # 输入框内容，不会去改已经写回 tl 的文件。
+        # -----------------------------------------------------------------
+
+        # 撤销栈上限（够来回改，又不至于一直占内存）
+        _livetl_history_limit = 200
+
+        # 连续打字合并的时间窗（秒）
+        _livetl_merge_window = 1.0
+
+        def livetl_clear_history(self):
+            """清空撤销 / 重做历史。"""
+            self.undo_stack = []
+            self.redo_stack = []
+            self.last_edit_end = None
+
+        def _livetl_snapshot(self):
+            """当前这一份内容的快照。"""
+            return (self.content, self.caret_pos, self.sel_start, self.sel_end)
+
+        def _livetl_record_edit(self, before, new_content):
+            """一次事件改到了内容：把改动前的那一份记进撤销栈。
+
+            单字符插入、且接着上一次插入的位置（一秒以内）时不另记一步 ——
+            等于"刚才那一串打字算一步"。
+            """
+            content, caret, _sel_start, _sel_end = before
+            pos = None
+
+            if len(new_content) == len(content) + 1:
+                candidate = caret
+
+                if (new_content[:candidate] == content[:candidate]) and (new_content[candidate + 1:] == content[candidate:]):
+                    pos = candidate
+
+            merge = (
+                (pos is not None)
+                and (self.last_edit_end is not None)
+                and (self.last_edit_end == pos)
+                and ((self.st - self.last_edit_time) <= self._livetl_merge_window)
+            )
+
+            if not merge:
+                self.undo_stack.append(before)
+
+                if len(self.undo_stack) > self._livetl_history_limit:
+                    del self.undo_stack[0]
+
+            self.redo_stack = []
+
+        def _livetl_finish_edit(self, st):
+            """事件结束时记下它的"净效果"，供连续打字合并用。"""
+            if not self.edit_touched:
+                return
+
+            content = self.edit_before[0]
+            caret = self.edit_before[1]
+            after = self.content
+
+            if (len(after) == len(content) + 1) and (after[:caret] == content[:caret]) and (after[caret + 1:] == content[caret:]):
+                self.last_edit_end = caret + 1
+                self.last_edit_time = st
+            else:
+                self.last_edit_end = None
+
+        def _livetl_restore(self, snapshot):
+            """把控件恢复到某一份快照（内容、光标、选区）。"""
+            content, caret, sel_start, sel_end = snapshot
+            length = len(content)
+
+            self.caret_pos = max(0, min(int(caret), length))
+            self.old_caret_pos = self.caret_pos
+
+            self.restoring = True
+            try:
+                # restoring 期间不记历史 —— 恢复本身不是一次编辑
+                self.update_text(content, self.editable)
+            finally:
+                self.restoring = False
+
+            # 内容一变，update_text 那侧会收起选区，这里按快照恢复
+            self.sel_start = max(0, min(int(sel_start), length))
+            self.sel_end = max(0, min(int(sel_end), length))
+
+            renpy.redraw(self, 0)
+
+        def _livetl_undo(self):
+            """Ctrl+Z：撤销一步；没有历史可撤时返回 False。"""
+            if not self.undo_stack:
+                return False
+
+            self.redo_stack.append(self._livetl_snapshot())
+            self._livetl_restore(self.undo_stack.pop())
+            self.last_edit_end = None
+
+            return True
+
+        def _livetl_redo(self):
+            """Ctrl+Y / Ctrl+Shift+Z：重做一步；没有可重做的返回 False。"""
+            if not self.redo_stack:
+                return False
+
+            self.undo_stack.append(self._livetl_snapshot())
+            self._livetl_restore(self.redo_stack.pop())
+            self.last_edit_end = None
+
+            return True
+
+        def _livetl_history_key(self, ev):
+            """撤销 / 重做的按键；真的动了历史才返回 True（好决定要不要吃事件）。"""
+            if renpy.map_event(ev, "ctrl_noshift_K_z") or renpy.map_event(ev, "meta_noshift_K_z"):
+                return self._livetl_undo()
+
+            if (
+                renpy.map_event(ev, "ctrl_noshift_K_y")
+                or renpy.map_event(ev, "meta_noshift_K_y")
+                or renpy.map_event(ev, "ctrl_shift_K_z")
+                or renpy.map_event(ev, "meta_shift_K_z")
+            ):
+                return self._livetl_redo()
+
+            return False
+
+        # -----------------------------------------------------------------
         # 内部：光标与选区
         # -----------------------------------------------------------------
 
@@ -315,9 +465,7 @@ init -90 python:
             if index != self.caret_pos:
                 self.caret_pos = index
                 self.old_caret_pos = index
-                renpy.display.behavior.Input.update_text(
-                    self, self.content, self.editable,
-                )
+                self.update_text(self.content, self.editable)
             else:
                 renpy.redraw(self, 0)
 
@@ -336,10 +484,9 @@ init -90 python:
             self.caret_pos = start + len(text)
             self.old_caret_pos = self.caret_pos
 
-            # 走官方实现：写回 value（store 变量）与重绘都由它负责
-            renpy.display.behavior.Input.update_text(
-                self, content, self.editable,
-            )
+            # 走本类的 update_text：写回 value（store 变量）、重绘，
+            # 以及"记进撤销栈"都由它负责
+            self.update_text(content, self.editable)
 
         def _livetl_copy_selection(self):
             """把选中的文本放进系统剪贴板。"""
@@ -566,13 +713,25 @@ init -90 python:
         # -----------------------------------------------------------------
 
         def update_text(self, new_content, editable, check_size=False):
-            """内容被外面改掉（换了一句、清空）时收起选区。
+            """内容变了的统一入口，历史在这里记。
 
-            译者在输入框里自己打字走的是内部路径（选区先被换成新内容），
-            不会被这里误清。
+            * 译者在输入框里自己改的（事件处理中）→ 记进撤销栈；
+            * 外面换的（新台词、清空、切到别的条目）→ 收起选区并清空历史，
+              免得 Ctrl+Z 把上一条的译文撤进当前输入框。
             """
-            if (new_content != self.content) and self._livetl_has_selection():
-                self.livetl_clear_selection()
+            if new_content != self.content:
+                if self.restoring:
+                    pass
+                elif self.edit_before is not None:
+                    # 一次事件只记一步：选区替换会连着改两次内容
+                    if not self.edit_touched:
+                        self._livetl_record_edit(self.edit_before, new_content)
+                        self.edit_touched = True
+                else:
+                    self.livetl_clear_history()
+
+                if self._livetl_has_selection():
+                    self.livetl_clear_selection()
 
             renpy.display.behavior.Input.update_text(
                 self, new_content, editable, check_size,
@@ -604,26 +763,39 @@ init -90 python:
             return out
 
         def event(self, ev, x, y, st):
-            if self.editable:
-                # Ctrl+A：全选（官方 Input 没有这个功能）
-                if self._livetl_select_all(ev):
+            # 记住这一次事件开始前的状态：撤销要的是"改动前"的那一份
+            self.st = st
+            self.edit_before = self._livetl_snapshot()
+            self.edit_touched = False
+
+            try:
+                if self.editable:
+                    # Ctrl+Z / Ctrl+Y：撤销、重做（真的动了历史才吃掉这个键）
+                    if self._livetl_history_key(ev):
+                        raise renpy.display.core.IgnoreEvent()
+
+                    # Ctrl+A：全选（官方 Input 没有这个功能）
+                    if self._livetl_select_all(ev):
+                        raise renpy.display.core.IgnoreEvent()
+
+                    # 鼠标：点击定位光标、拖拽选区；落在输入框这一行的都吃掉
+                    if self._livetl_mouse(ev, x, y, st):
+                        raise renpy.display.core.IgnoreEvent()
+
+                    # 选区存在时，编辑类按键先按"选中再打字"的规矩处理
+                    self._livetl_edit_selection(ev)
+
+                # 回车是"提交"，处理完别再让游戏把它当成"点击推进对话"
+                enter = (self.value is not None) and renpy.map_event(ev, "input_enter")
+                rv = renpy.display.behavior.Input.event(self, ev, x, y, st)
+
+                if enter and (rv is None):
                     raise renpy.display.core.IgnoreEvent()
 
-                # 鼠标：点击定位光标、拖拽选区；落在输入框这一行的都吃掉
-                if self._livetl_mouse(ev, x, y, st):
-                    raise renpy.display.core.IgnoreEvent()
-
-                # 选区存在时，编辑类按键先按"选中再打字"的规矩处理
-                self._livetl_edit_selection(ev)
-
-            # 回车是"提交"，处理完别再让游戏把它当成"点击推进对话"
-            enter = (self.value is not None) and renpy.map_event(ev, "input_enter")
-            rv = renpy.display.behavior.Input.event(self, ev, x, y, st)
-
-            if enter and (rv is None):
-                raise renpy.display.core.IgnoreEvent()
-
-            return rv
+                return rv
+            finally:
+                self._livetl_finish_edit(st)
+                self.edit_before = None
 
     # 面板输入框：同一个输入值只建一个控件（见 LiveTLInput 的说明）
     _livetl_engine_input_widgets = []

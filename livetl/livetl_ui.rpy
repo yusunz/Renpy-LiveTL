@@ -379,7 +379,8 @@ screen livetl_edit_body():
 
     # 译文输入框：已保存过就填进去方便修改，否则留空。
     # 用自带鼠标支持的控件（官方 Input 点不进、也挡不住点击）：
-    # 点一下定位光标、拖拽选词、双击选词、Ctrl+A 全选、Ctrl+X 剪切。
+    # 点一下定位光标、拖拽选词、双击选词、Ctrl+A 全选、Ctrl+X 剪切，
+    # Ctrl+Z / Ctrl+Y 撤销与重做。
     $ _livetl_input_widget = livetl_engine_input_widget(
           livetl_value, 2000, style="livetl_input", size=22)
     add _livetl_input_widget id "livetl_input"
