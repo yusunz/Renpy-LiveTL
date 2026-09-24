@@ -660,7 +660,12 @@ init -50 python:
         livetl_menu_sync()
 
     def livetl_menu_row_text(index):
-        """菜单列表里某一行的显示文本（在这里转义，screen 里不做复杂表达式）。"""
+        """菜单列表里某一行的显示文本（在这里转义，screen 里不做复杂表达式）。
+
+        行首序号要写成 [[1]：引擎把 [1] 当成插值去取"第 1 个位置参数"，
+        而位置参数永远是空的 —— 8.1 上抛 IndexError 把面板渲染打断，
+        8.5.3 上不报错但会把方括号吃掉，显示成 "1 原文 — 未翻"。
+        """
         items = store.livetl_menu_items
 
         if not (0 <= index < len(items)):
@@ -672,7 +677,7 @@ init -50 python:
         if item["dup"]:
             note += "（重复）"
 
-        return "[{}] {} — {}".format(index + 1, livetl_escape(item["caption"]), note)
+        return "[[{}] {} — {}".format(index + 1, livetl_escape(item["caption"]), note)
 
     def livetl_menu_select(index):
         """点击菜单列表里的某一条。"""
