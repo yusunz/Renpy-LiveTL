@@ -77,6 +77,11 @@ init -100 python:
     # 面板宽度（像素）。
     livetl_panel_width = 680
 
+    # 输入框里选中文字时的底色（用于拖拽选词）。
+    # 面板本身是深色底，用带透明度的浅色最清楚；写法与 Ren'Py 的
+    # 颜色写法一致（#rgb / #rgba / #rrggbb / #rrggbbaa）。
+    livetl_input_select_color = "#ffcc6666"
+
     # 是否显示当前句的翻译标识符（排查问题时有用）。
     livetl_show_id = True
 

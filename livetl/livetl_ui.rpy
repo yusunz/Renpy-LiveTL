@@ -231,6 +231,11 @@ screen livetl_panel():
             yoffset _yoffset
             xsize livetl_panel_width
 
+            # 面板范围内的事件不再往游戏传：否则"点一下输入框"会变成
+            # "点一下游戏画面"，剧情往前推进一句（modal 是官方承诺的写法：
+            # 鼠标在窗口内时事件不再穿透到下层）。
+            modal True
+
             vbox:
                 spacing 8
 
@@ -241,11 +246,11 @@ screen livetl_panel():
 
                 text "目标语言（即 tl 目录名），例如 schinese、tchinese、japanese：" style "livetl_source"
 
-                input:
-                    id "livetl_language_input"
-                    value livetl_language_value
-                    length 40
-                    size 22
+                # 语言输入框：和译文输入框用同一个控件（鼠标定位光标、
+                # 拖拽选区、点击不再穿透）
+                $ _livetl_language_widget = livetl_engine_input_widget(
+                      livetl_language_value, 40, style="livetl_input", size=22)
+                add _livetl_language_widget id "livetl_language_input"
 
                 # 未翻译的句子怎么显示，交给译者选
                 text "没翻过的句子在游戏里：" style "livetl_source"
@@ -323,6 +328,9 @@ screen livetl_panel():
             yoffset _yoffset
             xsize livetl_panel_width
 
+            # 面板范围内的事件不再往游戏传（见设置界面里的说明）
+            modal True
+
             vbox:
                 spacing 8
 
@@ -369,12 +377,12 @@ screen livetl_edit_body():
     if livetl_show_id and livetl_current_tid:
         text "id: [livetl_current_tid!q]" size 16
 
-    # 译文输入框：已保存过就填进去方便修改，否则留空
-    input:
-        id "livetl_input"
-        value livetl_value
-        length 2000
-        size 22
+    # 译文输入框：已保存过就填进去方便修改，否则留空。
+    # 用自带鼠标支持的控件（官方 Input 点不进、也挡不住点击）：
+    # 点一下定位光标、拖拽选词、双击选词、Ctrl+A 全选。
+    $ _livetl_input_widget = livetl_engine_input_widget(
+          livetl_value, 2000, style="livetl_input", size=22)
+    add _livetl_input_widget id "livetl_input"
 
     # 提交与重载分开，便于连续翻译
     hbox:
@@ -591,7 +599,10 @@ init python:
         # 第一次真正交互时，把"只有跑起来才知道"的引擎事实写进日志：
         # 升级引擎后对比新旧日志，语义漂移（例如 lookup_translate 的返回值
         # 形态变了）一眼可见。每个探针每次运行只报一次，之后返回空列表。
-        for _livetl_probe_line in livetl_engine_runtime_probe() + livetl_state_probe():
+        # 输入框那条要等到它被画过一遍（那才有排版可比），所以先返回空。
+        for _livetl_probe_line in (
+            livetl_engine_runtime_probe() + livetl_state_probe() + livetl_engine_input_probe()
+        ):
             livetl_log(_livetl_probe_line)
 
         # 目标语言选定后（含首次启动），补全 tl 模板
@@ -618,13 +629,6 @@ init python:
         if renpy.get_screen("livetl_panel") is None:
             renpy.show_screen("livetl_panel")
 
-        # 新的一句开始时，把输入焦点放进输入框
-        if store.livetl_focus_pending:
-            # 游戏在等输入时先不抢，等它输入完再给面板聚焦
-            if not livetl_game_input_active():
-                store.livetl_focus_pending = False
-                renpy.set_focus("livetl_panel", "livetl_input")
-
         # 重载后的第一次交互：跳回刚才那一句，让新译文重新渲染
         tid = livetl_state_pop("livetl_replay_tid", None)
 
@@ -637,3 +641,28 @@ init python:
 
     if livetl_ensure_panel not in config.interact_callbacks:
         config.interact_callbacks.append(livetl_ensure_panel)
+
+    def livetl_menu_poll():
+        """每帧看一眼"面板该不该换形态"，该换就重画。
+
+        为什么不能只在交互回调里做：菜单是在交互开始**之后**才显示的，
+        而菜单一旦显示就会一直等玩家点，交互不会重新开始 —— 于是
+        "交互开始时是台词、几帧后菜单才出现"这一种，回调永远补不上。
+        每帧检查一次，形态真的变了才重启交互（不无条件重启：每次交互都重启
+        会形成 "restart_interaction() was called 100 times" 的死循环）。
+        """
+        if livetl_engine_underlay_suppressed():
+            return
+
+        if store.livetl_pick_active:
+            # 拾取模式有自己的同步逻辑（还要管拾取层的显示与隐藏）
+            return
+
+        mode_before = store.livetl_mode
+        livetl_menu_sync()
+
+        if store.livetl_mode != mode_before:
+            livetl_restart()
+
+    if livetl_menu_poll not in config.periodic_callbacks:
+        config.periodic_callbacks.append(livetl_menu_poll)

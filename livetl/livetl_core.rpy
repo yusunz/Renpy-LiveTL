@@ -49,9 +49,6 @@ init -50 python:
     # 而面板的显示状态是界面状态，不应该跟着剧情一起回退。
     livetl_visible = livetl_state_setdefault("livetl_visible", True)
 
-    # 是否需要在下一个交互开始时把焦点放进输入框
-    livetl_focus_pending = False
-
     # ---------------------------------------------------------------------
     # 基础工具
     # ---------------------------------------------------------------------
@@ -571,19 +568,16 @@ init -50 python:
         store.livetl_current_key = item["caption"]
         store.livetl_current_source = item["caption"]
 
-        # 只在"刚进入菜单 / 换了选中项"时刷新输入框并请求焦点。
+        # 只在"刚进入菜单 / 换了选中项"时刷新输入框。
         #
         # 这个函数被 livetl_menu_sync 每帧调用，如果每次都写 livetl_input，
-        # 译者打的字会在下一帧被 tl 里的旧值覆盖（表现就是"输入不进去"）；
-        # 每次都 set_focus 也不行 —— 它会重启交互，形成
-        # "restart_interaction() was called 100 times" 的死循环。
+        # 译者打的字会在下一帧被 tl 里的旧值覆盖（表现就是"输入不进去"）。
         focus_key = (idx, item["caption"])
 
         if livetl_state_get("livetl_menu_focus_key") != focus_key:
             livetl_state_set("livetl_menu_focus_key", focus_key)
 
             store.livetl_input = livetl_input_text(item["new"] or "")
-            store.livetl_focus_pending = True
 
     def livetl_menu_sync():
         """菜单出现或换了一个菜单时刷新面板；返回是否处于菜单模式。
@@ -780,12 +774,9 @@ init -50 python:
 
         livetl_log("sync: tid={!r} source={!r} existing={!r}".format(tid, store.livetl_current_source, existing))
 
-        # 标记"下一次交互开始时聚焦输入框"。
-        # 这里不能直接 set_focus：此刻面板还没显示，聚焦会失败；
-        # 真正的聚焦在 livetl_ensure_panel 里做。
-        # 这样译者可以直接打字，不必用鼠标点输入框
-        # （点击输入框会穿透到游戏，把对话推进一句）。
-        store.livetl_focus_pending = True
+        # 这里不碰"焦点"：官方 Input 不是 focusable，set_focus() 对它是空转
+        # （还会顺手清掉游戏那边的焦点）。译者能直接打字，靠的是面板挂在
+        # overlay 层、按键先经过面板，见 livetl_engine_input.rpy 的 event()。
 
     def livetl_submit():
         """把输入框内容写回 tl 文件（不重载）。"""
