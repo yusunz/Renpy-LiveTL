@@ -812,6 +812,14 @@ init -90 python:
                 if cached_value is value:
                     return widget
 
+            # 官方 Input 的复制 / 粘贴受 copypaste 开关控制，默认是关的：
+            # 不打开的话 Ctrl+V 根本走不到引擎那段粘贴逻辑（面板以前就是这样，
+            # 只有插件自己实现的 Ctrl+C / Ctrl+X 能动剪贴板）。
+            #
+            # 粘贴时引擎会丢掉换行与制表符，这是有意的：面板上原文里的换行本来
+            # 就显式显示成 \n，译者也照着显式写 \n（见 README 的"写换行"）。
+            properties.setdefault("copypaste", True)
+
             widget = LiveTLInput(
                 value=value, length=length, select_color=select_color, **properties
             )
