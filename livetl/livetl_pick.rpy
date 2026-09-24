@@ -15,7 +15,7 @@ init -50 python:
     import os
 
     # 拾取模式是否开启（放 session：热重载与"回退"都不丢）
-    livetl_pick_active = renpy.session.setdefault("livetl_pick_active", False)
+    livetl_pick_active = livetl_state_setdefault("livetl_pick_active", False)
 
     # 鼠标下的原文与预览框位置（拾取层读取）
     livetl_pick_preview = ""
@@ -139,17 +139,17 @@ init -50 python:
 
     def livetl_pick_set_active(value):
         """开关拾取模式：收起/展开面板，并同步拾取层。"""
-        renpy.session["livetl_pick_active"] = value
+        livetl_state_set("livetl_pick_active", value)
         store.livetl_pick_active = value
 
         store.livetl_pick_preview = ""
 
         if value:
             store.livetl_visible = False
-            renpy.session["livetl_visible"] = False
+            livetl_state_set("livetl_visible", False)
         else:
             store.livetl_visible = True
-            renpy.session["livetl_visible"] = True
+            livetl_state_set("livetl_visible", True)
 
         livetl_pick_screen_sync()
 
@@ -199,7 +199,7 @@ init -50 python:
 
             # 菜单还开着时别让菜单同步把面板抢回列表：
             # 否则刚拾到的这句对话立刻被菜单列表顶掉，看起来像"没拾到"。
-            renpy.session["livetl_menu_hold"] = True
+            livetl_state_set("livetl_menu_hold", True)
 
             store.livetl_mode = "say"
 
@@ -225,7 +225,7 @@ init -50 python:
         places = index.get(text)
 
         # 菜单还开着时，别让菜单同步把面板抢回去
-        renpy.session["livetl_menu_hold"] = True
+        livetl_state_set("livetl_menu_hold", True)
 
         store.livetl_mode = "say"
         store.livetl_current_kind = "string"

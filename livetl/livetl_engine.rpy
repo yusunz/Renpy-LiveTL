@@ -20,11 +20,15 @@
 #      按能力拆文件，不按版本号拆文件：Ren'Py 的差异是"某个接口从某版起
 #      才有"，按版本号拆会让同一处逻辑散在两个文件里，改一次要动两处。
 #   4. 门禁：其它文件里出现 renpy.game. / renpy.ast. / renpy.display.interface /
-#      renpy.translation.generation / renpy.translation.scanstrings / translator.
+#      renpy.translation.generation / renpy.translation.scanstrings / renpy.text. /
+#      translator. / config.pygame_events / config.tl_directory
 #      会被 tools/check_engine_seam.ps1 拦下，提交前跑一次。
 #
-# 公开 API 不走这一层：renpy.get_screen / renpy.session / renpy.reload_script /
-# renpy.config.* / config.* / persistent 等文档里有承诺的接口，直接调用即可。
+# 判定"是不是公开 API"看 SDK 自带的文档（doc/py-function-class-index.html、
+# doc/config.html），不看印象：renpy.get_screen / renpy.reload_script /
+# config.gamedir / config.say_menu_text_filter 等文档里有承诺，直接调用即可；
+# 文档里查不到的（renpy.session 等）一样要进适配层 —— session 在
+# livetl_state.rpy，其余在本文件。tools/check_renpy_api.ps1 负责这项检查。
 # =============================================================================
 
 init -90 python:
@@ -33,6 +37,10 @@ init -90 python:
 
     # 最近一次适配层失败的描述，供日志排查（不参与任何判断逻辑）
     _livetl_engine_last_error = ""
+
+    # 拖入文件的事件类型：None 表示"还没试过注册"，注册失败时保持 None
+    _livetl_engine_drop_event = None
+    _livetl_engine_drop_checked = False
 
     def livetl_engine_note_error(where, error):
         """记下适配层在哪里、因为什么失败。"""
@@ -214,6 +222,33 @@ init -90 python:
         except Exception as e:
             livetl_engine_note_error("tl_path", e)
             return None
+
+    def livetl_engine_tl_root(language=None):
+        """翻译目录：game/tl（给语言时是 game/tl/<语言>）。
+
+        config.gamedir 在文档里有承诺，config.tl_directory 没有 —— 后者由本
+        函数统一负责，feature 文件不要再自己拼这个路径。tl_directory 取不到
+        时按引擎的默认值 "tl" 来，避免拼出相对路径把文件写到进程工作目录。
+        连 gamedir 都拿不到才返回 ""（调用方按"没有可用目录"处理）。
+        """
+        try:
+            gamedir = renpy.config.gamedir
+        except Exception as e:
+            livetl_engine_note_error("tl_root/gamedir", e)
+            return ""
+
+        try:
+            subdir = renpy.config.tl_directory
+        except Exception as e:
+            livetl_engine_note_error("tl_root/tl_directory", e)
+            subdir = "tl"
+
+        root = os.path.join(gamedir, subdir)
+
+        if language:
+            return os.path.join(root, language)
+
+        return root
 
     def livetl_engine_replay_label(tid):
         """当前语言下这一句实际执行到的块名；取不到返回 None。
@@ -505,6 +540,46 @@ init -90 python:
     # 契约层：交互层
     # ---------------------------------------------------------------------
 
+    def livetl_engine_file_drop_type():
+        """让引擎把"从系统里拖入文件"的事件交给游戏，返回该事件类型。
+
+        引擎默认只处理标准事件，DROPFILE 要先登记进 config.pygame_events，
+        否则事件根本到不了渲染树里的 displayable。这个配置项在文档里查不到
+        （只能在引擎源码里看到），所以按规则收在这里。
+
+        引擎不支持时返回 None，调用方应当隐藏拖放提示。
+        只需要登记一次，结果缓存起来（登记在 init 阶段做最保险）。
+        """
+        global _livetl_engine_drop_event
+        global _livetl_engine_drop_checked
+
+        if _livetl_engine_drop_checked:
+            return _livetl_engine_drop_event
+
+        _livetl_engine_drop_checked = True
+
+        try:
+            import pygame
+        except Exception as e:
+            livetl_engine_note_error("file_drop/import", e)
+            return None
+
+        event_type = getattr(pygame, "DROPFILE", None)
+
+        if event_type is None:
+            return None
+
+        try:
+            # config.pygame_events 在文档里没有承诺，取不到就当作不支持
+            if event_type not in config.pygame_events:
+                config.pygame_events.append(event_type)
+        except Exception as e:
+            livetl_engine_note_error("file_drop/register", e)
+            return None
+
+        _livetl_engine_drop_event = event_type
+        return event_type
+
     def livetl_engine_underlay_suppressed():
         """引擎当前是否抑制 underlay。
 
@@ -586,5 +661,70 @@ init -90 python:
             ),
             "engine seam: text_cache={}".format(
                 flag(hasattr(getattr(renpy.text, "text", None), "layout_cache_clear")),
+            ),
+        ]
+
+    # ---------------------------------------------------------------------
+    # 契约层：运行时自检（语义漂移探针）
+    #
+    # 引擎不报错、行为却变了的那类改动，接口探测看不出来，只能把"我们依赖的
+    # 假设"写成可观察的事实：8.1 → 8.5 真正变过的就是 lookup_translate() 的
+    # 返回形态（节点 → (节点, 是否已有译文)）与渲染树的可用性，这里报一次。
+    # ---------------------------------------------------------------------
+
+    _livetl_engine_runtime_probed = False
+
+    def _livetl_engine_lookup_shape():
+        """lookup_translate() 在当前引擎上的返回形态（语义探针用）。"""
+        translator = _livetl_engine_translator()
+
+        if translator is None:
+            return "no-translator"
+
+        tid = livetl_engine_current_tid()
+
+        if not tid:
+            identifiers = livetl_engine_all_translate_ids()
+            tid = identifiers[0][0] if identifiers else None
+
+        if not tid:
+            return "unknown"
+
+        try:
+            rv = translator.lookup_translate(tid)
+        except Exception as e:
+            livetl_engine_note_error("lookup_shape", e)
+            return "error"
+
+        if rv is None:
+            return "none"
+
+        return "tuple" if isinstance(rv, tuple) else "node"
+
+    def livetl_engine_runtime_probe():
+        """只有真正跑起来才知道的引擎事实；每次运行只报一次。
+
+        init 阶段界面还没创建、也还没有台词，那时的 probe 只能报配置层面的
+        东西。这几行要等第一次交互才有意义，所以由界面层调用并写进日志。
+        升级引擎后把新旧两份日志对齐看，语义漂移一眼可见。
+        """
+        global _livetl_engine_runtime_probed
+
+        if _livetl_engine_runtime_probed:
+            return []
+
+        _livetl_engine_runtime_probed = True
+
+        try:
+            interface = renpy.display.interface
+            tree = getattr(interface, "surftree", None) if interface is not None else None
+        except Exception:
+            tree = None
+
+        return [
+            "engine seam runtime: lookup_translate={} surftree={} translate_nodes={}".format(
+                _livetl_engine_lookup_shape(),
+                "yes" if tree is not None else "no",
+                len(livetl_engine_all_translate_ids()),
             ),
         ]

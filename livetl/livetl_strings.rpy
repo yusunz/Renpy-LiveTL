@@ -69,11 +69,11 @@ init -50 python:
     # ---------------------------------------------------------------------
 
     def livetl_tl_language_dir(language=None):
-        """目标语言的 tl 目录。"""
+        """目标语言的 tl 目录；引擎拿不到目录时返回 ""。"""
         if language is None:
             language = livetl_target_language()
 
-        return os.path.join(renpy.config.gamedir, renpy.config.tl_directory, language)
+        return livetl_engine_tl_root(language)
 
     def livetl_iter_tl_files(language=None):
         """列出该语言 tl 目录下的翻译文件（.rpy / .rpym，跳过备份目录）。"""
@@ -226,7 +226,7 @@ init -50 python:
             except Exception:
                 pass
 
-        cached = renpy.session.get("livetl_string_index")
+        cached = livetl_state_get("livetl_string_index")
 
         if (not force) and cached and (cached[0] == language) and (cached[1] == stamp):
             return cached[2]
@@ -260,13 +260,13 @@ init -50 python:
                     index.setdefault(old, []).append((rel, lineno, livetl_unquote(m.group(1))))
                     pending = None
 
-        renpy.session["livetl_string_index"] = (language, stamp, index)
+        livetl_state_set("livetl_string_index", (language, stamp, index))
         return index
 
     def livetl_invalidate_string_index():
         """写回或清理之后让索引失效，下次访问时重建。"""
-        renpy.session.pop("livetl_string_index", None)
-        renpy.session.pop("livetl_string_file_map", None)
+        livetl_state_pop("livetl_string_index", None)
+        livetl_state_pop("livetl_string_file_map", None)
 
     def livetl_lookup_string(key, language=None):
         """这条文本在 tl 里的条目；返回 (相对文件名, 行号, 译文) 或 None。"""
@@ -289,7 +289,7 @@ init -50 python:
         沿用 Ren'Py 官方的 scanstrings + translation_filename 规则
         （在 livetl_engine.rpy 里），与 Launcher 的「生成翻译」写到同一个文件。
         """
-        cached = renpy.session.get("livetl_string_file_map")
+        cached = livetl_state_get("livetl_string_file_map")
 
         if (cached is not None) and (not force):
             return cached
@@ -299,7 +299,7 @@ init -50 python:
         if not rv and livetl_engine_last_error():
             livetl_log("string file map: 扫描失败 {}".format(livetl_engine_last_error()))
 
-        renpy.session["livetl_string_file_map"] = rv
+        livetl_state_set("livetl_string_file_map", rv)
         return rv
 
     def livetl_string_file_for(key):
@@ -329,7 +329,13 @@ init -50 python:
         else:
             rel = livetl_string_file_for(key)
 
-        path = os.path.join(livetl_tl_language_dir(language), rel)
+        root = livetl_tl_language_dir(language)
+
+        if not root:
+            livetl_log("write string: 拿不到 tl 目录，放弃写入")
+            return None
+
+        path = os.path.join(root, rel)
 
         dirname = os.path.dirname(path)
         if dirname and not os.path.isdir(dirname):
@@ -437,7 +443,13 @@ init -50 python:
             return None
 
         rel, lineno, _new = livetl_best_string_entry(key, places)
-        path = os.path.join(livetl_tl_language_dir(language), rel)
+        root = livetl_tl_language_dir(language)
+
+        if not root:
+            livetl_log("delete string: 拿不到 tl 目录，放弃删除")
+            return None
+
+        path = os.path.join(root, rel)
 
         try:
             with open(path, encoding="utf-8-sig") as f:

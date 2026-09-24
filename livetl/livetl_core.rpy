@@ -47,7 +47,7 @@ init -50 python:
     # 面板是否展开。
     # 放在 session 里：Ren'Py 的"回退（Back）"会回滚 store 变量，
     # 而面板的显示状态是界面状态，不应该跟着剧情一起回退。
-    livetl_visible = renpy.session.setdefault("livetl_visible", True)
+    livetl_visible = livetl_state_setdefault("livetl_visible", True)
 
     # 是否需要在下一个交互开始时把焦点放进输入框
     livetl_focus_pending = False
@@ -78,10 +78,10 @@ init -50 python:
         if not livetl_debug:
             return
 
-        if renpy.session.get("livetl_log_started"):
+        if livetl_state_get("livetl_log_started"):
             return
 
-        renpy.session["livetl_log_started"] = True
+        livetl_state_set("livetl_log_started", True)
 
         try:
             path = os.path.join(renpy.config.gamedir, "livetl.log")
@@ -421,18 +421,23 @@ init -50 python:
         标记写在项目自己的 tl/<语言>/ 目录里，而不是 persistent：
         persistent 是存档目录（多个项目可能共用），
         而 tl 目录是每个游戏独立的。
+        拿不到 tl 目录时返回 ""，调用方会跳过写标记。
         """
-        return os.path.join(
-            renpy.config.gamedir,
-            renpy.config.tl_directory,
-            language,
-            ".livetl_generated",
-        )
+        root = livetl_engine_tl_root(language)
+
+        if not root:
+            return ""
+
+        return os.path.join(root, ".livetl_generated")
 
     def livetl_mark_templates_done(language):
         """记下"这个项目的这个语言已经补全过模板"。"""
         try:
             path = livetl_mark_path(language)
+
+            if not path:
+                return
+
             dirname = os.path.dirname(path)
 
             if not os.path.isdir(dirname):
@@ -455,7 +460,13 @@ init -50 python:
         if not language:
             return
 
-        if os.path.exists(livetl_mark_path(language)):
+        mark = livetl_mark_path(language)
+
+        # 拿不到 tl 目录（引擎配置异常）时既补不了模板、也不该每次交互重试
+        if not mark:
+            return
+
+        if os.path.exists(mark):
             return
 
         try:
@@ -478,8 +489,8 @@ init -50 python:
         所以画面仍停在旧文本上。这里记下当前句，等重载后的第一次
         交互开始时跳回这一句，用新译文重新渲染。
         """
-        renpy.session["livetl_replay_tid"] = livetl_current_id()
-        livetl_log("reload_script() tid={!r}".format(renpy.session["livetl_replay_tid"]))
+        livetl_state_set("livetl_replay_tid", livetl_current_id())
+        livetl_log("reload_script() tid={!r}".format(livetl_state_get("livetl_replay_tid")))
         renpy.reload_script()
 
     # ---------------------------------------------------------------------
@@ -568,8 +579,8 @@ init -50 python:
         # "restart_interaction() was called 100 times" 的死循环。
         focus_key = (idx, item["caption"])
 
-        if renpy.session.get("livetl_menu_focus_key") != focus_key:
-            renpy.session["livetl_menu_focus_key"] = focus_key
+        if livetl_state_get("livetl_menu_focus_key") != focus_key:
+            livetl_state_set("livetl_menu_focus_key", focus_key)
 
             store.livetl_input = livetl_input_text(item["new"] or "")
             store.livetl_focus_pending = True
@@ -587,11 +598,11 @@ init -50 python:
         captions = livetl_menu_captions()
 
         if captions is None:
-            renpy.session["livetl_menu_key"] = None
-            renpy.session["livetl_menu_hold"] = False
+            livetl_state_set("livetl_menu_key", None)
+            livetl_state_set("livetl_menu_hold", False)
             # 菜单关掉之后要重置，否则下次进同一个菜单时
             # 会因为 key 相同而不刷新输入框
-            renpy.session["livetl_menu_focus_key"] = None
+            livetl_state_set("livetl_menu_focus_key", None)
             store.livetl_mode = "say"
             store.livetl_menu_items = []
             store.livetl_menu_index = 0
@@ -600,8 +611,8 @@ init -50 python:
 
         key = tuple(captions)
 
-        if key != renpy.session.get("livetl_menu_key"):
-            renpy.session["livetl_menu_key"] = key
+        if key != livetl_state_get("livetl_menu_key"):
+            livetl_state_set("livetl_menu_key", key)
 
             index = livetl_scan_string_index()
             store.livetl_menu_items = [livetl_menu_entry_of(c, index) for c in captions]
@@ -610,7 +621,7 @@ init -50 python:
         store.livetl_menu_count = len(store.livetl_menu_items)
 
         # 正在编辑拾取到的界面文本时不抢面板（点【回菜单】恢复）
-        if renpy.session.get("livetl_menu_hold"):
+        if livetl_state_get("livetl_menu_hold"):
             return True
 
         store.livetl_mode = "menu"
@@ -623,7 +634,7 @@ init -50 python:
             livetl_set_status("当前没有菜单")
             return
 
-        renpy.session["livetl_menu_hold"] = False
+        livetl_state_set("livetl_menu_hold", False)
         store.livetl_mode = "menu"
         livetl_menu_sync()
 
@@ -688,7 +699,7 @@ init -50 python:
     def livetl_dup_open():
         """从面板/设置界面进入体检界面。"""
         store.livetl_visible = True
-        renpy.session["livetl_visible"] = True
+        livetl_state_set("livetl_visible", True)
         livetl_dup_scan()
         livetl_restart()
 

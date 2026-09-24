@@ -18,23 +18,16 @@
 init -50 python:
     import hashlib
     import os
-    import pygame
     import re
     import shutil
 
     # ---------------------------------------------------------------------
-    # 拖放：引擎默认屏蔽标准之外的事件，config.pygame_events 是官方留的
-    # 口子，不加的话 DROPFILE 根本到不了游戏里（见 Interface.post_init）。
+    # 拖放：登记引擎口子的事在 livetl_engine.rpy（那个配置项没有文档承诺，
+    # 按规则只能待在那里）。这里在 init 阶段登记一次，界面层用
+    # livetl_engine_file_drop_type() 查询；引擎不支持时它是 None。
     # ---------------------------------------------------------------------
 
-    _livetl_drop_event = getattr(pygame, "DROPFILE", None)
-
-    if _livetl_drop_event is not None and _livetl_drop_event not in config.pygame_events:
-        config.pygame_events.append(_livetl_drop_event)
-
-    def livetl_font_drop_event_type():
-        """拖放事件类型；这个引擎上没有就返回 None。"""
-        return _livetl_drop_event
+    livetl_engine_file_drop_type()
 
     # 匹配脚本里出现的字体文件名，例如 "fonts/xxx.ttf"
     _livetl_font_pattern = re.compile(r'["\']([^"\']+\.(?:ttf|otf|ttc))["\']', re.IGNORECASE)

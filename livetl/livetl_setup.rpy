@@ -25,7 +25,7 @@ init -20 python:
 
     # 本次运行是否要先显示设置界面。
     # 放在 session 里：热重载之后不会又弹回设置界面。
-    livetl_setup_pending = renpy.session.setdefault("livetl_setup_pending", True)
+    livetl_setup_pending = livetl_state_setdefault("livetl_setup_pending", True)
 
     def livetl_need_setup():
         """是否显示语言设置界面。
@@ -49,7 +49,7 @@ init -20 python:
 
         # 设置完成，切到翻译界面
         store.livetl_setup_pending = False
-        renpy.session["livetl_setup_pending"] = False
+        livetl_state_set("livetl_setup_pending", False)
 
         # 把游戏强制切到目标语言。
         # 否则游戏界面仍然显示原文，"提交 / 重载"看起来就像没生效。
@@ -89,6 +89,6 @@ init -20 python:
         已经翻好的条目不会被覆盖。
         """
         store.livetl_setup_pending = True
-        renpy.session["livetl_setup_pending"] = True
+        livetl_state_set("livetl_setup_pending", True)
         store.livetl_visible = True
         livetl_log("open setup")

@@ -15,11 +15,11 @@ init python:
         同时写 session 与 store：session 用于抵抗"回退"回滚，
         store 用于界面即时渲染。
         """
-        renpy.session["livetl_visible"] = value
+        livetl_state_set("livetl_visible", value)
         store.livetl_visible = value
 
     def livetl_toggle_visible():
-        livetl_set_visible(not renpy.session.get("livetl_visible", True))
+        livetl_set_visible(not livetl_state_get("livetl_visible", True))
 
     def livetl_escape(s):
         """把原文转义成可以按字面显示的文本。
@@ -129,7 +129,7 @@ init python:
             return renpy.Render(1, 1)
 
         def event(self, ev, x, y, st):
-            if ev.type == livetl_font_drop_event_type():
+            if ev.type == livetl_engine_file_drop_type():
                 livetl_font_drop(getattr(ev, "file", None))
 
                 # 列表开着的话（拖入时通常开着），把它刷成最新的
@@ -558,25 +558,25 @@ init python:
         游戏输入结束后再展开回用户原来的显示状态。
         """
         game_input = livetl_game_input_active()
-        collapsed = renpy.session.get("livetl_input_collapsed", False)
+        collapsed = livetl_state_get("livetl_input_collapsed", False)
 
         if game_input and not collapsed:
             # 记下用户原本的显示状态，输入完还回去
-            renpy.session["livetl_visible_before_input"] = store.livetl_visible
-            renpy.session["livetl_input_collapsed"] = True
+            livetl_state_set("livetl_visible_before_input", store.livetl_visible)
+            livetl_state_set("livetl_input_collapsed", True)
 
             store.livetl_visible = False
-            renpy.session["livetl_visible"] = False
+            livetl_state_set("livetl_visible", False)
             # 这里不要 restart_interaction：重启会清空输入框列表，
             # 下一拍就检测不到游戏输入框，于是又恢复、再折叠，来回抖。
             # livetl_visible 是面板 screen 直接依赖的变量，改它就会重绘。
 
         elif (not game_input) and collapsed:
-            renpy.session["livetl_input_collapsed"] = False
+            livetl_state_set("livetl_input_collapsed", False)
 
-            restore = renpy.session.get("livetl_visible_before_input", True)
+            restore = livetl_state_get("livetl_visible_before_input", True)
             store.livetl_visible = restore
-            renpy.session["livetl_visible"] = restore
+            livetl_state_set("livetl_visible", restore)
 
     def livetl_ensure_panel():
         """确保面板已显示。
@@ -587,6 +587,12 @@ init python:
         """
         if livetl_engine_underlay_suppressed():
             return
+
+        # 第一次真正交互时，把"只有跑起来才知道"的引擎事实写进日志：
+        # 升级引擎后对比新旧日志，语义漂移（例如 lookup_translate 的返回值
+        # 形态变了）一眼可见。每个探针每次运行只报一次，之后返回空列表。
+        for _livetl_probe_line in livetl_engine_runtime_probe() + livetl_state_probe():
+            livetl_log(_livetl_probe_line)
 
         # 目标语言选定后（含首次启动），补全 tl 模板
         livetl_ensure_templates()
@@ -602,7 +608,7 @@ init python:
 
         # 面板显示状态以 session 为准：
         # 剧情回退会回滚 store 变量，这里每次交互都同步回来。
-        store.livetl_visible = renpy.session.get("livetl_visible", True)
+        store.livetl_visible = livetl_state_get("livetl_visible", True)
 
         # 游戏自己在等输入（renpy.input）时自动折叠面板：
         # 面板里的输入框会跟游戏的输入框抢键盘焦点。
@@ -620,7 +626,7 @@ init python:
                 renpy.set_focus("livetl_panel", "livetl_input")
 
         # 重载后的第一次交互：跳回刚才那一句，让新译文重新渲染
-        tid = renpy.session.pop("livetl_replay_tid", None)
+        tid = livetl_state_pop("livetl_replay_tid", None)
 
         if tid:
             name = livetl_engine_replay_label(tid)
