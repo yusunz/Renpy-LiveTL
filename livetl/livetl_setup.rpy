@@ -17,33 +17,49 @@ init python:
 
 
 # 设置界面里预填的语言：优先用上次选过的，方便直接确认
-default livetl_language_input = persistent.livetl_language or livetl_language_default
+default livetl_language_input = persistent.livetl_language or livetl_language
 default livetl_language_value = LiveTLLanguageValue("livetl_language_input")
 
 
 init -20 python:
 
     # 本次运行是否要先显示设置界面。
+    # 初值由配置决定；之后由译者点「开始翻译」置为 False。
     # 放在 session 里：热重载之后不会又弹回设置界面。
-    livetl_setup_pending = livetl_state_setdefault("livetl_setup_pending", True)
+    livetl_setup_pending = livetl_state_setdefault("livetl_setup_pending", bool(livetl_show_setup_on_start))
 
     def livetl_need_setup():
         """是否显示语言设置界面。
 
-        每次启动游戏都先显示一次，让译者确认目标语言与
-        "没翻过的句子怎么显示"；点「开始翻译」之后才切到翻译界面。
+        三种情况会显示：
+          * 还没定过目标语言（persistent 里没有）—— 第一次用，问一次；
+          * 目标语言不合法（留空、写错）—— 无条件问，否则生成模板与写回
+            会落到 tl/ 根目录，产出引擎解析不了的文件；
+          * livetl_show_setup_on_start = True —— 按配置每次启动都确认一次。
+        其余时候直接进翻译界面，想换语言点面板上的【设置】。
         """
         # 体检界面要能盖住设置界面：否则在设置界面点【检查重复】
         # 只会切换状态，界面看起来毫无反应。
         if store.livetl_mode == "dup":
             return False
 
-        return bool(livetl_setup_pending) or (bool(livetl_ask_language) and not persistent.livetl_language)
+        if not livetl_language_valid(livetl_target_language()):
+            return True
+
+        if not persistent.livetl_language:
+            return True
+
+        return bool(livetl_setup_pending)
 
     def livetl_confirm_language():
         """记下目标语言，并增量补全一次翻译模板。"""
-        language = (store.livetl_language_input or "").strip() or livetl_language_default
-        language = language.replace(" ", "_")
+        # 输入框留空就退回配置里的缺省语言；两处都不合法时不往下走
+        language = livetl_normalize_language(store.livetl_language_input or livetl_language)
+
+        if not language:
+            livetl_set_status(livetl_language_hint())
+            livetl_log("confirm_language rejected: {!r}".format(store.livetl_language_input))
+            return
 
         livetl_set_language(language)
 

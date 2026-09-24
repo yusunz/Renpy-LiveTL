@@ -134,6 +134,33 @@ init -50 python:
         except Exception:
             return False
 
+    # 语言名同时是 tl/<语言>/ 的目录名与 translate 语句里的语言名。
+    # 引擎的名字 token 规则是"字母或下划线开头，后面跟字母、数字、下划线"：
+    # 实测连字符会让生成的文件解析不了（translate pt-br start_x: →
+    # expected 'hash' not found），数字开头是 expected 'name' not found。
+    _livetl_language_pattern = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+    def livetl_language_valid(language):
+        """这个语言名能不能当目标语言用。"""
+        return bool(language) and _livetl_language_pattern.match(str(language)) is not None
+
+    def livetl_normalize_language(text):
+        """界面上的输入 → 规范化的语言名；不合法时返回 ""。
+
+        空格换成下划线（"simplified chinese" → "simplified_chinese"），
+        其余原样交给 livetl_language_valid() 判断。
+        """
+        language = str(text or "").strip().replace(" ", "_")
+
+        if not livetl_language_valid(language):
+            return ""
+
+        return language
+
+    def livetl_language_hint():
+        """语言名不合法时给译者看的一句话。"""
+        return "目标语言只能用字母、数字、下划线，且不能以数字开头（例如 schinese）"
+
     def livetl_target_language():
         """当前选定的目标语言（优先取引导时保存的选择）。"""
         return persistent.livetl_language or livetl_language

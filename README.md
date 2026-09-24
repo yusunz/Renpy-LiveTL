@@ -48,8 +48,12 @@
 
 ### 第一次使用
 
-1. 启动游戏，右上角的悬浮框**默认显示设置界面**
-2. 填写**目标语言**（就是 `tl` 目录名，例如 `schinese`、`tchinese`、`japanese`）
+1. 启动游戏，右上角的悬浮框会显示**设置界面**（只有还没定过目标语言时才会这样；
+   定过之后启动就直接进翻译界面，想改设置点面板上的【设置】）
+2. 填写**目标语言**（就是 `tl` 目录名，例如 `schinese`、`tchinese`、`japanese`）：
+   只能用字母、数字、下划线，且不能以数字开头。语言名同时是 Ren'Py
+   `translate` 语句里的名字，乱填会让生成的翻译文件解析不了，插件会把
+   不合法的输入拦下来并提示
 3. 选择**没翻过的句子在游戏里怎么显示**：
    - **留空**：显示为空白
    - **显示原文**：照常读到原文，便于边读边翻（默认）
@@ -139,9 +143,8 @@ tl 的模板条目里，例如 `_("Page {}")`、`_("SAVE [SLOT]\n%A, %B %d %Y, %
 
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `livetl_language` | `"schinese"` | 缺省目标语言（`tl` 目录名） |
-| `livetl_ask_language` | `True` | 启动时是否显示设置界面 |
-| `livetl_language_default` | `"schinese"` | 设置界面预填的语言 |
+| `livetl_language` | `"schinese"` | 缺省目标语言（`tl` 目录名），也是设置界面预填的值 |
+| `livetl_show_setup_on_start` | `False` | 是否每次启动都先显示设置界面；默认只在还没定过目标语言时问一次 |
 | `livetl_show_source_when_empty` | `True` | 没翻过的句子显示原文（`False` 则留空） |
 | `livetl_hotkey` | `"K_F8"` | 面板开关快捷键 |
 | `livetl_pick_hotkey` | `"K_F9"` | 拾取模式快捷键 |
