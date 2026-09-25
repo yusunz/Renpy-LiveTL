@@ -33,14 +33,25 @@ init -50 python:
     _livetl_font_pattern = re.compile(r'["\']([^"\']+\.(?:ttf|otf|ttc))["\']', re.IGNORECASE)
 
     def livetl_collect_fonts():
-        """收集游戏脚本里用到的字体文件名。
+        """收集会用到的字体文件名：游戏源码 + 目标语言的 tl 脚本。
 
-        扫描参与翻译的脚本中出现过的 *.ttf / *.otf / *.ttc 字符串，
-        和原项目里 extract_fonts.py 的思路一致。
+        扫描出现过的 *.ttf / *.otf / *.ttc 字符串，和原项目里 extract_fonts.py
+        的思路一致。
+
+        tl 脚本必须一起扫：译文脚本里会设自己的字体（常见写法是在
+        `translate <语言> python:` 块里改 gui.text_font，或 tl/<语言>/gui.rpy），
+        切换语言之后那套字体就会被应用 —— 不把它们纳进来，译者选的字体只覆盖
+        一半文本（实测：设置页切到某个语言后，译文里的字体又变回游戏原字体）。
+
+        只扫目标语言的 tl 脚本（它涉及的每个目录都扫）：别的语言是游戏自己的
+        事，不该被顺手改掉字体；想换语言就换设置页里的目标语言。
         """
+        files = list(livetl_engine_translate_files())
+        files.extend(livetl_language_files(livetl_target_language()))
+
         fonts = set()
 
-        for filename in livetl_engine_translate_files():
+        for filename in files:
             try:
                 with open(filename, "r", encoding="utf-8", errors="ignore") as f:
                     for m in _livetl_font_pattern.finditer(f.read()):

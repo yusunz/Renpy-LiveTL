@@ -99,6 +99,14 @@ init -20 python:
         except Exception as e:
             livetl_log("change_language failed for {!r}: {}".format(language, e))
 
+        # 换了目标语言就换了一套 tl 脚本（里面可能设了别的字体）：字体替换表要
+        # 重扫重建，否则新语言 tl 里设的字体不在表里，译文会退回游戏原字体。
+        # 这一步顺带清排版缓存并重绘，新字体立刻生效。
+        try:
+            livetl_font_apply_now()
+        except Exception as e:
+            livetl_log("font re-apply after language change failed: {!r}".format(e))
+
         # 不管这个语言有没有生成过，都做一次增量补全 —— 与 Ren'Py SDK 的
         # 「生成翻译」一致：已经翻好的条目原样保留，只补新增的台词/字符串。
         # 有新增的文件里会留下 TODO 注释方便溯源（没有新增就不会有 TODO）。
