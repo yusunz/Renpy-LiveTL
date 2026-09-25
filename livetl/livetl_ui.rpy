@@ -146,6 +146,11 @@ init python:
         和字体拖放层同一个套路：引擎只把事件交给渲染树里的 displayable，
         所以设置界面要挂上这一层（它自己不画东西）。不在捕获态时它什么都
         不做，事件照常往下走。
+
+        吃事件要用 IgnoreEvent，不能 return 一个值：文档里写明"event() 返回
+        非 None 时，这个值就是本次交互的返回值"—— 那样 say 会当场结束，
+        剧情往前走一句（实测：改键时按 Ctrl 或字母，剧情自己跳行，按住
+        Ctrl 更是连着跳好几句，看着就是快进）。
         """
 
         def __init__(self, **kwargs):
@@ -156,7 +161,8 @@ init python:
 
         def event(self, ev, x, y, st):
             if livetl_hotkey_capture_key(ev):
-                return 0
+                # 忽略这个事件、交互继续；返回值会把交互结束掉
+                raise renpy.IgnoreEvent()
 
             return None
 
