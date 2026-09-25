@@ -217,6 +217,18 @@ init -50 python:
         if has_modifier and key in _livetl_hotkey_input_combo_keys:
             return False, "{} 已经给了输入框（复制 / 粘贴 / 撤销那一批）".format(livetl_hotkey_label(keysym))
 
+        # Shift+字母 / 数字 要拒绝：输入法会把它当打字收进候选条，而收按键这一步
+        # 发生在引擎之前 —— 插件拦不住，只能眼看候选条弹出来（实测：中文输入法下
+        # 候选条还会一直挂着）。想绑这个键就在前面加 Ctrl / Alt。
+        if ("shift" in modifiers) and (not (modifiers & {"ctrl", "osctrl", "alt", "meta"})):
+            if key.startswith("K_") and len(key) == 3 and key[2].isalnum():
+                return False, (
+                    "{} 会被输入法当成打字收进候选条，请改成 Ctrl+Shift+… 或 Ctrl+…（例如 {}）"
+                ).format(
+                    livetl_hotkey_label(keysym),
+                    livetl_hotkey_label("ctrl_" + keysym),
+                )
+
         return True, ""
 
     def livetl_hotkey_config_name(action):
@@ -363,12 +375,42 @@ init -50 python:
         return livetl_hotkey_action_label(action)
 
     def livetl_hotkey_capture_set(action):
-        """进入 / 离开捕获态。"""
+        """进入 / 离开捕获态：顺带对齐游戏键位与输入法状态。"""
         livetl_state_set("livetl_hotkey_capture", action or "")
 
         if action:
             # 上一次误触留下的快进先停掉，免得一进设置页剧情就在自己走
             _livetl_hotkey_stop_skipping("进入捕获态")
+            _livetl_hotkey_ime_mute()
+        else:
+            _livetl_hotkey_ime_restore()
+
+    def _livetl_hotkey_ime_mute():
+        """改键期间关掉系统文本输入：输入法不再收按键，候选条就不会出现。
+
+        这是"预防"：等候选条出来再取消（0.2.7 试过）在部分输入法上无效 ——
+        它们不理文本输入的开关已经晚了；不开就根本不会有。离开改键时开回来。
+        """
+        if not getattr(store, "livetl_mute_ime_while_binding", True):
+            return
+
+        if livetl_state_get("livetl_hotkey_ime_muted"):
+            return
+
+        if livetl_engine_input_text_input_stop():
+            livetl_state_set("livetl_hotkey_ime_muted", True)
+        else:
+            livetl_log("hotkey: 关掉系统文本输入失败（见 engine seam 错误）")
+
+    def _livetl_hotkey_ime_restore():
+        """离开改键：把系统文本输入开回来（之后照常打中文）。"""
+        if not livetl_state_get("livetl_hotkey_ime_muted"):
+            return
+
+        livetl_state_set("livetl_hotkey_ime_muted", False)
+
+        if not livetl_engine_input_text_input_start():
+            livetl_log("hotkey: 开回系统文本输入失败（见 engine seam 错误）")
 
     def livetl_hotkey_capture_poll():
         """每帧看一眼捕获层还在不在界面上，不在就结束捕获。

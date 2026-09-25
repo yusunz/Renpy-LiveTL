@@ -837,6 +837,37 @@ init -90 python:
     # 面板输入框：同一个输入值只建一个控件（见 LiveTLInput 的说明）
     _livetl_engine_input_widgets = []
 
+    def livetl_engine_input_text_input_stop():
+        """关掉系统文本输入（输入法不再收按键）；成功返回 True。
+
+        改键时用：关掉之后按键直接给游戏，中文输入法不会把 Shift+字母 收进候选条
+        （那一步在引擎之前，插件拦不住，只能预防）。
+        """
+        try:
+            import pygame
+
+            pygame.key.stop_text_input()
+        except Exception as e:
+            livetl_engine_note_error("input/text_input_stop", e)
+            return False
+
+        return True
+
+    def livetl_engine_input_text_input_start():
+        """把系统文本输入开回来（改键结束、继续打中文用）；成功返回 True。
+
+        引擎只在"输入框刚出现"时调用 start_text_input()，所以这一步得自己调。
+        """
+        try:
+            import pygame
+
+            pygame.key.start_text_input()
+        except Exception as e:
+            livetl_engine_note_error("input/text_input_start", e)
+            return False
+
+        return True
+
     def livetl_engine_input_widget(value, length, select_color=None, hotkey_filter=None, **properties):
         """拿面板输入框控件（第一次调用时创建，之后复用同一个）。
 
