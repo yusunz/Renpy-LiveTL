@@ -276,6 +276,11 @@ screen livetl_panel():
 
                 text "目标语言（即 tl 目录名），例如 schinese、tchinese、japanese：" style "livetl_source"
 
+                # 语言名同时是目录名与 translate 语句里的名字，引擎区分大小写：
+                # 磁盘上已经有同名目录（可能只是大小写不同）时按磁盘上的写法用它，
+                # 最终用的名字会回填到上面的输入框里。
+                text "tl 下已有的同名目录会直接沿用（大小写以目录为准）；None 是引擎保留名。" style "livetl_hint"
+
                 # 语言输入框：和译文输入框用同一个控件（鼠标定位光标、
                 # 拖拽选区、点击不再穿透）；绑成快捷键的按键要让它过路
                 $ _livetl_language_widget = livetl_engine_input_widget(
@@ -538,6 +543,10 @@ style livetl_title is default:
 style livetl_source is default:
     size 20
     color "#dfdfdf"
+
+style livetl_hint is default:
+    size 16
+    color "#909090"
 
 style livetl_input is default:
     size 22

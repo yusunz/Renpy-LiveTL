@@ -121,6 +121,11 @@ init -50 python:
             if keysym is not None:
                 setattr(store, config_name, keysym)
 
+        language = livetl_setting_get("language")
+
+        if language is not None:
+            store.livetl_language = language
+
         font = livetl_setting_get("font")
 
         if font is not None:
@@ -169,9 +174,19 @@ init -50 python:
     # expected 'hash' not found），数字开头是 expected 'name' not found。
     _livetl_language_pattern = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+    # 引擎保留名：`translate None <id>:` 是"默认语言"的写法，官方生成器也把
+    # 字符串 "None" 当默认语言处理（generation.write_translates 里写明了），
+    # 所以它不能当目标语言 —— 填了只会得到一堆语义不对的文件。
+    _livetl_language_reserved = ("None",)
+
     def livetl_language_valid(language):
         """这个语言名能不能当目标语言用。"""
-        return bool(language) and _livetl_language_pattern.match(str(language)) is not None
+        language = str(language or "")
+
+        if (not language) or (language in _livetl_language_reserved):
+            return False
+
+        return _livetl_language_pattern.match(language) is not None
 
     def livetl_normalize_language(text):
         """界面上的输入 → 规范化的语言名；不合法时返回 ""。
@@ -188,16 +203,97 @@ init -50 python:
 
     def livetl_language_hint():
         """语言名不合法时给译者看的一句话。"""
-        return "目标语言只能用字母、数字、下划线，且不能以数字开头（例如 schinese）"
+        return "目标语言只能用字母、数字、下划线，且不能以数字开头（例如 schinese）；None 是引擎保留名"
+
+    def livetl_language_dirs():
+        """game/tl/ 下已有的语言目录名（原样大小写）；一个都没有时返回 []。
+
+        tl 目录的位置由引擎隔离层负责（那是引擎事实），这里只负责列目录：
+        语言名就是 tl 下的目录名，这些名字才是"磁盘上的事实"。
+        """
+        root = livetl_engine_tl_root()
+
+        if not root or not os.path.isdir(root):
+            return []
+
+        try:
+            names = os.listdir(root)
+        except Exception as e:
+            livetl_log("language dirs: {!r}".format(e))
+            return []
+
+        return sorted(
+            name for name in names
+            if os.path.isdir(os.path.join(root, name))
+        )
+
+    def livetl_resolve_language(name):
+        """把语言名跟磁盘上已有的 tl 目录对齐，返回 (最终用的名字, 说明)。
+
+        语言名同时是目录名和 `translate <语言> <id>:` 里的名字，而 Windows 与
+        macOS 的文件系统不区分大小写：填 chinese 时磁盘上若已经有 tl/Chinese，
+        按填的字符拼路径就会写进那个目录，把 `translate chinese` 混进别人已经
+        翻好的文件里。所以磁盘上的写法优先；说明是给译者看的一句话（没有要
+        说明的事情时是空串）。两边都没有时用填的名字，第一次生成时建出来。
+
+        语言名只允许 ASCII 字母数字下划线，所以大小写比较用 lower() 就够。
+        """
+        name = str(name or "").strip()
+
+        if not name:
+            return "", ""
+
+        dirs = livetl_language_dirs()
+
+        if name in dirs:
+            return name, ""
+
+        lowered = name.lower()
+
+        for existing in dirs:
+            if existing.lower() == lowered:
+                return existing, "已有 tl/{}，按磁盘上的写法用它".format(existing)
+
+        return name, ""
 
     def livetl_target_language():
-        """当前选定的目标语言（优先取引导时保存的选择）。"""
-        return persistent.livetl_language or livetl_language
+        """当前目标语言（已与磁盘上的 tl 目录对齐）。
+
+        优先级：本次运行选过的（session）＞ 项目配置里的 livetl_language。
+        persistent 里那份是 0.2.9 以前的旧记录，只在设置界面里当预填值用。
+        """
+        language = livetl_setting_get("language") or livetl_language
+        return livetl_resolve_language(language)[0]
 
     def livetl_set_language(language):
-        """记录目标语言选择。"""
-        persistent.livetl_language = language
+        """记下这次运行的目标语言（store 镜像 + session，不写文件）。
+
+        落盘那一步在 livetl_commit_language()：只有译者点【开始翻译】才算是
+        "选定这个项目的语言"。
+        """
+        store.livetl_language = language
+        livetl_setting_set("language", language)
         livetl_log("language set to {!r}".format(language))
+
+    def livetl_commit_language(language, path=None):
+        """把目标语言写回 livetl_config.rpy 的 livetl_language 那一行。
+
+        语言是"这个项目在做什么"，跟着项目走；配置改不了（打包后只剩 .rpyc）
+        时本次运行仍然生效，由调用方在状态栏说明。
+        返回 (备份文件名, 错误信息)。`path` 是给测试用的口子，正常调用不用传。
+        """
+        # 语言名已经过 livetl_language_valid()，只有字母数字下划线，
+        # 当字面量写进配置文件是安全的
+        backup, error = livetl_config_set_value(
+            "livetl_language", '"{}"'.format(language), path=path,
+        )
+
+        if error:
+            livetl_log("language config not updated: {}".format(error))
+        else:
+            livetl_log("language committed: {!r} (backup {})".format(language, backup))
+
+        return backup, error
 
     # ---------------------------------------------------------------------
     # 定位当前台词
@@ -249,6 +345,10 @@ init -50 python:
 
     def livetl_write_entry(language, tid, text):
         """把译文写回 tl 文件中的这一条；文件里其它内容保持原样。"""
+        # 语言名可能来自调用方（设置界面刚确认时传的是输入框里的值），这里再
+        # 与磁盘对齐一次：写进别人翻译目录这种代价，一次都不该发生。
+        language = livetl_resolve_language(language)[0]
+
         filename, linenumber = livetl_engine_source_location(tid)
         if not filename:
             return None
@@ -445,6 +545,9 @@ init -50 python:
         """
         if language is None:
             language = livetl_target_language()
+        else:
+            # 显式传进来的名字同样先与磁盘对齐（见 livetl_resolve_language）
+            language = livetl_resolve_language(language)[0]
 
         # 官方生成器只看内存里的翻译表，而本次运行新写出来的 tl 文件不在表里：
         # 先补登记，生成完再撤掉（见 livetl_seed_existing_entries）。
@@ -501,39 +604,60 @@ init -50 python:
         except Exception:
             pass
 
-    def livetl_ensure_templates():
-        """首次进入时，补全一次目标语言的翻译模板。
+    def livetl_project_setup_done(language=None):
+        """这个项目是不是已经为这个语言补全过（tl/<语言>/.livetl_generated）。
 
-        只在"这个项目还没为这个语言补全过"时动手（靠 tl 目录里的标记文件
-        判断），不每次交互都扫一遍。剧本更新后想再补一次，到【设置】里
-        再点一次【开始翻译】——那条路径是无条件增量补全。
+        这个标记就是"译者已经确认过目标语言"的项目侧记录：它跟着项目
+        （tl 目录）走，不像 persistent 那样跟着机器走。语言不合法、拿不到
+        tl 目录、或者标记还没写时返回 False —— 那些情况本来就该再问一次。
         """
-        language = livetl_target_language()
+        if language is None:
+            language = livetl_target_language()
 
-        if not language:
-            return
+        if not livetl_language_valid(language):
+            return False
 
         mark = livetl_mark_path(language)
+        return bool(mark) and os.path.exists(mark)
 
-        # 拿不到 tl 目录（引擎配置异常）时既补不了模板、也不该每次交互重试
-        if not mark:
+    def livetl_ensure_templates():
+        """启动后的第一次交互：为已经选定的语言做一次增量补全。
+
+        两道闸门：
+          * livetl_autocomplete_on_start = False —— 启动不碰文件，
+            只在设置界面点【开始翻译】时生成；
+          * 这个项目还没为这个语言补全过 —— 说明译者还没确认过目标语言，
+            这时一个字都不该写进项目（设置界面会先问一次）。
+        它挂在每次交互的开始处，所以再加一道"每次运行只跑一次"的闸门，
+        否则每句台词都会重扫一遍项目。
+        """
+        if not livetl_autocomplete_on_start:
             return
 
-        if os.path.exists(mark):
+        if livetl_state_get("livetl_autocomplete_done"):
             return
+
+        if livetl_need_setup():
+            return
+
+        language = livetl_target_language()
+
+        if not livetl_project_setup_done(language):
+            return
+
+        livetl_state_set("livetl_autocomplete_done", True)
 
         try:
             count = livetl_generate_templates(language)
         except Exception as e:
-            # 生成失败通常不是"下次就好了"的问题（目录只读、磁盘满……），
-            # 记下标记避免每次交互都重试一遍，把提示留给译者。
-            livetl_log("ensure_templates failed: {!r}".format(e))
+            # 生成失败的原因通常不是"下次就好了"（目录只读、磁盘满……）：
+            # 提示留给译者。这里不写标记 —— 标记是"译者确认过"的凭据，
+            # 写下去就等于把设置界面也一并挡掉了。
+            livetl_log("autocomplete failed: {!r}".format(e))
             livetl_set_status("自动补全 tl/{}/ 失败：{}".format(language, e))
-            livetl_mark_templates_done(language)
             return
 
-        livetl_mark_templates_done(language)
-        livetl_log("ensure_templates: {!r} ({} files)".format(language, count))
+        livetl_log("autocomplete: {!r} ({} files)".format(language, count))
 
     def livetl_reload():
         """触发热重载：保存进度 → 重新加载脚本 → 读回存档。
