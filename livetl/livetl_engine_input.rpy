@@ -50,18 +50,6 @@ init -90 python:
         ",.;:!?()[]{}<>\"'`~#$%^&*|\\/+=@"
     )
 
-    # 事件类型：让路判定每个按键都要用，取一次就好
-    try:
-        import pygame
-
-        _livetl_engine_input_keydown = pygame.KEYDOWN
-        _livetl_engine_input_textinput = pygame.TEXTINPUT
-    except Exception as e:
-        livetl_engine_note_error("input/event_types", e)
-
-        _livetl_engine_input_keydown = None
-        _livetl_engine_input_textinput = None
-
     def _livetl_engine_input_is_sep(ch):
         """这个字符算不算"词"的分界（双击选词用）。"""
         return ch in _livetl_engine_input_separators
@@ -291,14 +279,6 @@ init -90 python:
         # 让路判定：由快捷键那一层给的可调用对象，收到事件后返回真表示
         # "这一下绑成了快捷键"。None = 没有快捷键功能（照官方 Input 处理）。
         hotkey_filter = None
-
-        # 刚让出去的那一下按键带的字符，以及让路发生的时间
-        hotkey_text = ""
-        hotkey_text_st = -10.0
-        hotkey_text_pending = False
-
-        # 让路之后多久之内到来的文本算它的（秒）
-        _livetl_hotkey_text_window = 0.5
 
         def __init__(self, select_color=None, hotkey_filter=None, **kwargs):
             renpy.display.behavior.Input.__init__(self, **kwargs)
@@ -580,10 +560,10 @@ init -90 python:
 
             return (0 <= x < width) and (0 <= y < height)
 
-        def _livetl_hotkey_mode(self, ev, st):
-            """这一下是不是绑成快捷键的按键；返回 "" / "live" / "bound"。
+        def _livetl_hotkey_mode(self, ev):
+            """这一下对输入框意味着什么："" / "live" / "bound" / "swallow"。
 
-            判定由快捷键那层给（hotkey_filter）：
+            判定由快捷键那层给（hotkey_filter），输入框只管照做：
 
             输入框在渲染树里排在面板 screen 的 key 语句后面，而事件是从后往前
             分发的 —— 真正先拿到按键的是输入框。引擎的 Input 一认"可打印键"
@@ -593,55 +573,13 @@ init -90 python:
             * "live"  —— 让路：事件继续往后传，最终落到 key 语句上执行动作；
             * "bound" —— 绑了但此刻不生效：吃掉，但只是"别打字"，不执行动作
                           （译者在设置页试一下自己刚绑的键是最自然不过的事）；
-            这一下可能带出的那个字符由 _livetl_swallow_hotkey_text() 负责吞掉。
+            * "swallow" —— 上面两种按键带出来的文本（含输入法的组合与上屏）：
+                           吞掉，别让它落进输入框。
             """
             if self.hotkey_filter is None:
                 return ""
 
-            if ev.type != _livetl_engine_input_keydown:
-                return ""
-
-            mode = self.hotkey_filter(ev)
-
-            if not mode:
-                # 别的按键：过期的记号作废，正常打字不受影响
-                self.hotkey_text_pending = False
-                self.hotkey_text = ""
-                return ""
-
-            self.hotkey_text_pending = True
-            self.hotkey_text = getattr(ev, "unicode", "") or ""
-            self.hotkey_text_st = st
-
-            return mode
-
-        def _livetl_swallow_hotkey_text(self, ev, st):
-            """紧跟让路按键之后到来的文本：吞掉，别让它落进输入框。
-
-            SDL 对可打印字符会先发 KEYDOWN、再补一个 TEXTINPUT：KEYDOWN 归
-            key 语句（动作照常执行），TEXTINPUT 不吞的话就成了输入框里的
-            一个字母（实测：绑 Shift+R 后按快捷键，框里多出一个 R）。
-            """
-            if not self.hotkey_text_pending:
-                return False
-
-            if ev.type != _livetl_engine_input_textinput:
-                return False
-
-            expected = self.hotkey_text
-            text = getattr(ev, "text", "") or ""
-
-            self.hotkey_text_pending = False
-            self.hotkey_text = ""
-
-            if (st - self.hotkey_text_st) > self._livetl_hotkey_text_window:
-                # 隔得太久：多半不是那一下带出来的，当普通输入处理
-                return False
-
-            if expected and (text != expected):
-                return False
-
-            return True
+            return self.hotkey_filter(ev)
 
         def _livetl_mouse(self, ev, x, y, st):
             """鼠标事件；返回 True 表示这一下归输入框，别再往下传。"""
@@ -858,16 +796,14 @@ init -90 python:
             self.edit_touched = False
 
             try:
-                # 绑成快捷键的按键让给面板的 key 语句；它带出来的文本一起吞掉
-                if self._livetl_swallow_hotkey_text(ev, st):
-                    raise renpy.display.core.IgnoreEvent()
-
-                _livetl_hotkey_mode = self._livetl_hotkey_mode(ev, st)
+                # 绑成快捷键的按键让给面板的 key 语句，它带出来的文本（含输入法的
+                # 组合与上屏）一起吞掉；判定由快捷键那层给（见 _livetl_hotkey_mode）
+                _livetl_hotkey_mode = self._livetl_hotkey_mode(ev)
 
                 if _livetl_hotkey_mode == "live":
                     return None
 
-                if _livetl_hotkey_mode == "bound":
+                if _livetl_hotkey_mode in ("bound", "swallow"):
                     raise renpy.display.core.IgnoreEvent()
 
                 if self.editable:

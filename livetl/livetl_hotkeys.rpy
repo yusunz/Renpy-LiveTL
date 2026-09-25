@@ -57,8 +57,20 @@ init -50 python:
     # 输入框自己在用的组合键（见 livetl_engine_input.rpy）
     _livetl_hotkey_input_combo_keys = frozenset(["K_a", "K_x", "K_c", "K_v", "K_z", "K_y"])
 
-    # 被吞掉的按键带出的文本，多久之内算它的（秒）
+    # 被吞掉的按键带出的文本：状态放在 session 里，面板输入框与改键的捕获层
+    # 共用这一套判定。
+    #
+    # SDL 的文本输入分两段：TEXTEDITING（输入法正在组合，挑候选词可能持续好几
+    # 秒）与 TEXTINPUT（上屏）。只按"按键之后几百毫秒"判断的话，中文输入法里
+    # 译者挑完候选词再上屏，那个字母就漏进输入框了（实测：中文输入法会漏、
+    # 英文输入法不会）。所以组合期间一直算它的，组合结束之后再留一小段善后。
+    _livetl_hotkey_text_key = "livetl_hotkey_text"
+
+    # 按键之后、或组合结束之后，留多久善后（秒）
     _livetl_hotkey_text_window = 0.5
+
+    # 组合期间的上限：挑候选词可以很久，但状态不能永远挂着（秒）
+    _livetl_hotkey_composing_window = 30.0
 
     # 修饰键本身：绑上它会抢走所有同前缀的组合键，捕获时也要跳过它。
     # 同一个物理键在不同版本里的名字不止一个（SDL 的 LCTRL / LGUI / LSUPER、
@@ -418,8 +430,64 @@ init -50 python:
 
         return rv
 
+    def livetl_hotkey_text_arm(text):
+        """刚吞掉一个按键：记住它可能带出的字符，等它的文本到来。"""
+        livetl_state_set(
+            _livetl_hotkey_text_key,
+            (text or "", time.monotonic() + _livetl_hotkey_text_window),
+        )
+
+    def livetl_hotkey_text_clear():
+        """这一下与"被吞掉的按键带出的文本"无关：把记号清掉，别误吞后面的字。"""
+        livetl_state_pop(_livetl_hotkey_text_key, None)
+
+    def livetl_hotkey_text_consume(ev):
+        """这个事件是被吞掉的那个按键带出来的文本吗；是就返回 True（调用方吞掉）。
+
+        * TEXTEDITING（组合中）—— 一直算它的，挑多久候选词都不算过期；
+        * TEXTEDITING（空文本 = 组合结束）—— 再留 0.5 秒善后，上屏可能紧跟其后；
+        * TEXTINPUT（上屏）—— 吞掉并清记号；过期或内容对不上就当普通文本。
+        """
+        state = livetl_state_get(_livetl_hotkey_text_key, None)
+
+        if not state:
+            return False
+
+        expected, deadline = state
+        now = time.monotonic()
+
+        if ev.type == pygame.TEXTEDITING:
+            text = getattr(ev, "text", "") or ""
+
+            if text:
+                livetl_state_set(
+                    _livetl_hotkey_text_key,
+                    (expected, now + _livetl_hotkey_composing_window),
+                )
+            else:
+                livetl_state_set(
+                    _livetl_hotkey_text_key,
+                    (expected, now + _livetl_hotkey_text_window),
+                )
+
+            return True
+
+        if ev.type == pygame.TEXTINPUT:
+            livetl_state_pop(_livetl_hotkey_text_key, None)
+
+            if now > deadline:
+                return False
+
+            # KEYDOWN 上未必带 unicode（SDL 开着文本输入时就是空的）：
+            # 那时候只能按"紧跟其后"判断，有 unicode 才比对内容
+            text = getattr(ev, "text", "") or ""
+
+            return (not expected) or (text == expected)
+
+        return False
+
     def livetl_hotkey_input_mode(ev):
-        """这个按键对面板输入框意味着什么："" / "live" / "bound"。
+        """这个事件对面板输入框意味着什么："" / "live" / "bound" / "swallow"。
 
         输入框排在 key 语句后面（事件从后往前分发），先拿到按键的是它：
 
@@ -428,8 +496,17 @@ init -50 python:
         * "bound" —— 绑了但此刻不生效（例如在设置页按提交 / 重载 / 清空的
                       组合）：不执行动作，但也不能把那个字母打进输入框 ——
                       译者在设置页试一下自己刚绑的键是最自然不过的事；
+        * "swallow" —— 上面两种按键带出来的文本（含输入法的组合与上屏）：
+                       吞掉，别让它落进输入框；
         * ""      —— 普通按键，照引擎的老规矩走（该打字就打字）。
         """
+        # 文本事件：按键时已经记下了记号，这里只判定要不要吞
+        if ev.type in (pygame.TEXTEDITING, pygame.TEXTINPUT):
+            return "swallow" if livetl_hotkey_text_consume(ev) else ""
+
+        if ev.type != pygame.KEYDOWN:
+            return ""
+
         live = []
 
         for _name, keysym in livetl_hotkey_live_keys():
@@ -445,10 +522,16 @@ init -50 python:
         for keysym in bound:
             try:
                 if renpy.map_event(ev, keysym):
+                    # 这一下归快捷键：它可能带出文本（含输入法的组合），先记下来
+                    livetl_hotkey_text_arm(getattr(ev, "unicode", "") or "")
+
                     return "live" if (keysym in live) else "bound"
             except Exception as e:
                 # 认不出来的键名不该让整个输入框罢工
                 livetl_log("hotkey match failed for {!r}: {!r}".format(keysym, e))
+
+        # 普通按键：记号作废，正常打字不受影响
+        livetl_hotkey_text_clear()
 
         return ""
 
@@ -515,27 +598,14 @@ init -50 python:
         """
         action = livetl_hotkey_capture_action()
 
-        # Shift+字母 这类按键：KEYDOWN 被吞掉之后，SDL 还会补一个 TEXTINPUT，
-        # 不一起吞的话那个字母照样会落进输入框（实测：绑 Shift+R 时多出一个 R）。
+        # Shift+字母 这类按键：KEYDOWN 被吞掉之后，SDL 还会送两段文本 ——
+        # 输入法的组合（TEXTEDITING）与上屏（TEXTINPUT）—— 都要吞掉，否则那个
+        # 字母照样会落进输入框（实测：绑 Shift+R 时多出一个 R；中文输入法里
+        # 挑完候选词再上屏，光等几百毫秒不够）。
         # 这一段要在"还在不在捕获态"之前判断：绑成功的那一下捕获态就结束了，
         # 而跟着来的文本仍然得吞掉。
-        if ev.type == pygame.TEXTINPUT:
-            pending = livetl_state_pop("livetl_hotkey_capture_text", None)
-
-            # 没吃过按键（或者已经过期）：这个文本不归捕获层
-            if not pending:
-                return False
-
-            expected, when = pending
-
-            if (time.monotonic() - when) > _livetl_hotkey_text_window:
-                return False
-
-            # KEYDOWN 上未必带 unicode（SDL 开着文本输入时就是空的）：
-            # 那时候只能按"紧跟其后"判断，有 unicode 才比对内容
-            text = getattr(ev, "text", "") or ""
-
-            return (not expected) or (text == expected)
+        if ev.type in (pygame.TEXTEDITING, pygame.TEXTINPUT):
+            return livetl_hotkey_text_consume(ev)
 
         if not action:
             return False
@@ -546,11 +616,8 @@ init -50 python:
         # Ctrl 那一下会先被引擎当成快进（它在渲染树之前判断），马上停掉
         _livetl_hotkey_stop_skipping("捕获中")
 
-        # 这一下可能带出一个字符：记下来，等紧随其后的 TEXTINPUT 一起吞掉
-        livetl_state_set(
-            "livetl_hotkey_capture_text",
-            (getattr(ev, "unicode", "") or "", time.monotonic()),
-        )
+        # 这一下可能带出一个字符：记下来，等它跟着的文本一起吞掉
+        livetl_hotkey_text_arm(getattr(ev, "unicode", "") or "")
 
         keysym = livetl_hotkey_from_event(ev)
 
@@ -560,14 +627,14 @@ init -50 python:
 
         if keysym == "K_ESCAPE":
             # 取消改键：不会再有文本跟来，别让记号留到译者之后的输入上
-            livetl_state_pop("livetl_hotkey_capture_text", None)
+            livetl_hotkey_text_clear()
             livetl_hotkey_capture_set("")
             livetl_set_status("已取消改键")
             livetl_restart()
             return True
 
         if keysym in ("K_BACKSPACE", "K_DELETE"):
-            livetl_state_pop("livetl_hotkey_capture_text", None)
+            livetl_hotkey_text_clear()
             livetl_hotkey_clear_row(action)
             return True
 
