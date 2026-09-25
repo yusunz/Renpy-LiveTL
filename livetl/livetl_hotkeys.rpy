@@ -314,6 +314,8 @@ init -50 python:
 
         # 配置改不了（打包后的游戏里只剩 .rpyc）也让这次运行先用上
         setattr(store, config_name, keysym)
+        # 译者的选择另外记一份：剧情"回退（Back）"不会把它带走
+        livetl_setting_set("hotkey_" + action, keysym)
 
         if error:
             livetl_log("hotkey config not updated: {}".format(error))
@@ -336,6 +338,7 @@ init -50 python:
 
         # 同 livetl_hotkey_bind()：配置改不了也让这次运行生效
         setattr(store, config_name, "")
+        livetl_setting_clear("hotkey_" + action)
 
         if error:
             livetl_log("hotkey config not updated: {}".format(error))

@@ -107,6 +107,35 @@ init -50 python:
         store.livetl_status = msg
         livetl_log("status: " + msg)
 
+    def livetl_settings_sync():
+        """把译者改过的设置回正到 store。
+
+        设置记在 session（见 livetl_config.rpy 的说明），界面读的却是 store
+        变量；剧情"回退（Back）"会把 store 变量按检查点回滚，所以这里每次交互
+        开始时再写一遍 —— 字体、显示方式、快捷键就不会被回退带走。没改过的项
+        不碰，保持配置里的缺省值。
+        """
+        for action, config_name, _label in livetl_hotkey_actions:
+            keysym = livetl_setting_get("hotkey_" + action)
+
+            if keysym is not None:
+                setattr(store, config_name, keysym)
+
+        font = livetl_setting_get("font")
+
+        if font is not None:
+            store.livetl_font = font
+
+        show_source = livetl_setting_get("show_source")
+
+        if show_source is not None:
+            store.livetl_show_source_when_empty = bool(show_source)
+
+        # "要不要显示设置界面"本身也是 session 状态，store 里只是它的镜像
+        store.livetl_setup_pending = livetl_state_get(
+            "livetl_setup_pending", store.livetl_setup_pending,
+        )
+
     def livetl_restart():
         """让界面重新渲染一次。
 

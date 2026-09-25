@@ -291,12 +291,12 @@ screen livetl_panel():
 
                     textbutton "留空":
                         style "livetl_action"
-                        action SetVariable("livetl_show_source_when_empty", False)
+                        action Function(livetl_set_show_source, False)
                         selected (not livetl_show_source_when_empty)
 
                     textbutton "显示原文":
                         style "livetl_action"
-                        action SetVariable("livetl_show_source_when_empty", True)
+                        action Function(livetl_set_show_source, True)
                         selected (livetl_show_source_when_empty)
 
                 hbox:
@@ -675,6 +675,10 @@ init python:
         # 面板显示状态以 session 为准：
         # 剧情回退会回滚 store 变量，这里每次交互都同步回来。
         store.livetl_visible = livetl_state_get("livetl_visible", True)
+
+        # 译者在设置界面改过的东西（字体、显示方式、快捷键）同样每次交互回正，
+        # 免得被"回退（Back）"带回旧值
+        livetl_settings_sync()
 
         # 游戏自己在等输入（renpy.input）时自动折叠面板：
         # 面板里的输入框会跟游戏的输入框抢键盘焦点。

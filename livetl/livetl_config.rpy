@@ -126,6 +126,37 @@ init -100 python:
     livetl_debug = True
 
     # ---------------------------------------------------------------------
+    # 译者改过的设置：记在 session
+    #
+    # livetl_config.rpy 是"项目源码里的缺省值"（能提交、能给别人复用）；
+    # 译者在界面上改过之后记进 session（见 livetl_state.rpy）：
+    #   * 剧情"回退（Back）"回滚的是 store 变量，设置放 session 就不会被带走；
+    #   * 不写 persistent：重开游戏回到配置里的缺省值，不会在机器上越积越多，
+    #     也不会和项目源码里的那份打架。
+    # store 里那几个同名变量是界面读的镜像，每次交互由 livetl_settings_sync()
+    # 按这里记的值回正（见 livetl_core.rpy）。
+    # ---------------------------------------------------------------------
+
+    def livetl_setting_get(name, default=None):
+        """读一条译者改过的设置；没改过时返回 default（调用方退回配置里的缺省值）。"""
+        return livetl_state_get("livetl_setting_" + str(name), default)
+
+    def livetl_setting_set(name, value):
+        """记下译者改过的设置（放 session：回退与热重载都不受影响）。"""
+        livetl_state_set("livetl_setting_" + str(name), value)
+
+        return value
+
+    def livetl_setting_clear(name):
+        """把某条设置退回配置里的缺省值。"""
+        livetl_state_pop("livetl_setting_" + str(name), None)
+
+    def livetl_set_show_source(value):
+        """设置"没翻过的句子在游戏里"显示原文还是留空。"""
+        store.livetl_show_source_when_empty = bool(value)
+        livetl_setting_set("show_source", bool(value))
+
+    # ---------------------------------------------------------------------
     # 改写本文件用的工具
     #
     # 字体和快捷键都是"译者在界面上点一下，就在配置里改一行"，共用这几个

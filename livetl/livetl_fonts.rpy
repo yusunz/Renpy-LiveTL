@@ -291,6 +291,8 @@ init -50 python:
 
         # 配置改不了也要让这次运行先用上新字体
         store.livetl_font = rel_path
+        # 译者的选择另外记一份：剧情"回退（Back）"不会把它带走
+        livetl_setting_set("font", rel_path)
         livetl_font_apply_now()
 
         notes = []
