@@ -580,34 +580,40 @@ init -90 python:
 
             return (0 <= x < width) and (0 <= y < height)
 
-        def _livetl_yield_hotkey(self, ev, st):
-            """这一下是不是绑成快捷键的按键；是就让路（返回 True，由调用方放行）。
+        def _livetl_hotkey_mode(self, ev, st):
+            """这一下是不是绑成快捷键的按键；返回 "" / "live" / "bound"。
+
+            判定由快捷键那层给（hotkey_filter）：
 
             输入框在渲染树里排在面板 screen 的 key 语句后面，而事件是从后往前
             分发的 —— 真正先拿到按键的是输入框。引擎的 Input 一认"可打印键"
             就会当打字吃掉，带字母的快捷键于是永远轮不到 key 语句（实测：
             绑 Ctrl+S / Shift+R 之后，翻译时按下去一点反应都没有）。
 
-            让出去之后事件会继续往后传，最终落到 key 语句上执行动作；
+            * "live"  —— 让路：事件继续往后传，最终落到 key 语句上执行动作；
+            * "bound" —— 绑了但此刻不生效：吃掉，但只是"别打字"，不执行动作
+                          （译者在设置页试一下自己刚绑的键是最自然不过的事）；
             这一下可能带出的那个字符由 _livetl_swallow_hotkey_text() 负责吞掉。
             """
             if self.hotkey_filter is None:
-                return False
+                return ""
 
             if ev.type != _livetl_engine_input_keydown:
-                return False
+                return ""
 
-            if not self.hotkey_filter(ev):
+            mode = self.hotkey_filter(ev)
+
+            if not mode:
                 # 别的按键：过期的记号作废，正常打字不受影响
                 self.hotkey_text_pending = False
                 self.hotkey_text = ""
-                return False
+                return ""
 
             self.hotkey_text_pending = True
             self.hotkey_text = getattr(ev, "unicode", "") or ""
             self.hotkey_text_st = st
 
-            return True
+            return mode
 
         def _livetl_swallow_hotkey_text(self, ev, st):
             """紧跟让路按键之后到来的文本：吞掉，别让它落进输入框。
@@ -856,8 +862,13 @@ init -90 python:
                 if self._livetl_swallow_hotkey_text(ev, st):
                     raise renpy.display.core.IgnoreEvent()
 
-                if self._livetl_yield_hotkey(ev, st):
+                _livetl_hotkey_mode = self._livetl_hotkey_mode(ev, st)
+
+                if _livetl_hotkey_mode == "live":
                     return None
+
+                if _livetl_hotkey_mode == "bound":
+                    raise renpy.display.core.IgnoreEvent()
 
                 if self.editable:
                     # Ctrl+Z / Ctrl+Y：撤销、重做（真的动了历史才吃掉这个键）
@@ -895,8 +906,9 @@ init -90 python:
 
         `value` 是官方 InputValue（面板的 livetl_value / livetl_language_value），
         其余属性原样交给 Input（style / size 之类）。`hotkey_filter` 是快捷键
-        那层给的判定函数：命中已绑定的快捷键时输入框让路（见 LiveTLInput 的
-        说明），不传就完全按官方 Input 的行为走。建不出来时返回 None，
+        那层给的判定函数：命中已绑定的快捷键时返回 "live"（让路给 key 语句）
+        或 "bound"（绑了但此刻不生效，只吞掉按键），详见 LiveTLInput 的说明；
+        不传就完全按官方 Input 的行为走。建不出来时返回 None，
         调用方按"没有输入框"处理（add None 是合法的）。
         """
         try:

@@ -280,7 +280,7 @@ screen livetl_panel():
                 # 拖拽选区、点击不再穿透）；绑成快捷键的按键要让它过路
                 $ _livetl_language_widget = livetl_engine_input_widget(
                       livetl_language_value, 40, style="livetl_input", size=22,
-                      hotkey_filter=livetl_hotkey_match_event)
+                      hotkey_filter=livetl_hotkey_input_mode)
                 add _livetl_language_widget id "livetl_language_input"
 
                 # 未翻译的句子怎么显示，交给译者选
@@ -439,7 +439,7 @@ screen livetl_edit_body():
     # Ctrl+Z / Ctrl+Y 撤销与重做；绑成快捷键的按键要让给面板的 key 语句。
     $ _livetl_input_widget = livetl_engine_input_widget(
           livetl_value, 2000, style="livetl_input", size=22,
-          hotkey_filter=livetl_hotkey_match_event)
+          hotkey_filter=livetl_hotkey_input_mode)
     add _livetl_input_widget id "livetl_input"
 
     # 提交与重载分开，便于连续翻译
