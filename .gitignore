@@ -20,6 +20,9 @@ AGENTS.md
 # 本地开发工具（引擎耦合门禁脚本），不纳入版本库
 tools/
 
+# 项目日志（本地维护，每次改动同步更新），不纳入版本库
+PROJECT_LOG.md
+
 # 系统与编辑器
 Thumbs.db
 .DS_Store
