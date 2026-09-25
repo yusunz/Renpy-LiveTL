@@ -297,22 +297,6 @@ screen livetl_panel():
                     # 已有的语言列表（单独一个 screen，见 livetl_language_list）
                     use livetl_language_list()
 
-                    # 未翻译的句子怎么显示，交给译者选
-                    text "没翻过的句子在游戏里：" style "livetl_source"
-
-                    hbox:
-                        spacing 10
-
-                        textbutton "留空":
-                            style "livetl_action"
-                            action Function(livetl_set_show_source, False)
-                            selected (not livetl_show_source_when_empty)
-
-                        textbutton "显示原文":
-                            style "livetl_action"
-                            action Function(livetl_set_show_source, True)
-                            selected (livetl_show_source_when_empty)
-
                     hbox:
                         spacing 10
                         textbutton "开始翻译" style "livetl_action" action Function(livetl_confirm_language)

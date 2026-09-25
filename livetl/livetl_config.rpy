@@ -55,18 +55,13 @@ init -100 python:
     # 标记，也就是译者确认过）时才动手：没确认之前一个字都不会写进项目。
     livetl_autocomplete_on_start = True
 
-    # 未翻译的句子在游戏里怎么显示（译者可在面板上改）：
-    #   True  —— 显示原文（在渲染时替换，不改动 tl 文件）
-    #   False —— 留空
-    # 生成 tl 时统一写空字符串，这两种选择都不影响文件内容。
-    livetl_show_source_when_empty = True
-
     # ---------------------------------------------------------------------
     # 界面
     # ---------------------------------------------------------------------
 
     # 快捷键（Ren'Py 的 keysym 名称，见 config.keymap）。
-    # 译者可以在设置界面里改，改完记在 persistent 里；这里是缺省值，留空 = 不绑定。
+    # 译者可以在设置界面里改：改完写回本文件（项目级），本次运行记进 session；
+    # 这里是缺省值，留空 = 不绑定。
     #
     # 前两个是全局的（面板折叠后也要能把面板叫回来），后三个只在面板展开时生效
     # ——它们只在写字时才有意义，折叠后不绑，免得抢走游戏自己的按键。
@@ -166,11 +161,6 @@ init -100 python:
     def livetl_setting_clear(name):
         """把某条设置退回配置里的缺省值。"""
         livetl_state_pop("livetl_setting_" + str(name), None)
-
-    def livetl_set_show_source(value):
-        """设置"没翻过的句子在游戏里"显示原文还是留空。"""
-        store.livetl_show_source_when_empty = bool(value)
-        livetl_setting_set("show_source", bool(value))
 
     # ---------------------------------------------------------------------
     # 改写本文件用的工具

@@ -113,7 +113,7 @@ init -50 python:
 
         设置记在 session（见 livetl_config.rpy 的说明），界面读的却是 store
         变量；剧情"回退（Back）"会把 store 变量按检查点回滚，所以这里每次交互
-        开始时再写一遍 —— 字体、显示方式、快捷键就不会被回退带走。没改过的项
+        开始时再写一遍 —— 字体、快捷键就不会被回退带走。没改过的项
         不碰，保持配置里的缺省值。
         """
         for action, config_name, _label in livetl_hotkey_actions:
@@ -131,11 +131,6 @@ init -50 python:
 
         if font is not None:
             store.livetl_font = font
-
-        show_source = livetl_setting_get("show_source")
-
-        if show_source is not None:
-            store.livetl_show_source_when_empty = bool(show_source)
 
         # "要不要显示设置界面"本身也是 session 状态，store 里只是它的镜像
         store.livetl_setup_pending = livetl_state_get(
@@ -1119,11 +1114,13 @@ init -50 python:
 init 10 python:
 
     # ---------------------------------------------------------------------
-    # 显示层：未翻译的句子怎么显示
+    # 显示层：未翻译的句子显示原文
     #
     # tl 文件里未翻译的条目一律是空串（干净、一眼可辨）。
-    # 译者如果希望在游戏里照常读到原文，就在这里于渲染阶段
-    # 把空译文顶回原文 —— 不改动 tl 文件。
+    # 游戏里则照常读到原文：在这里于渲染阶段把空译文顶回原文 —— 不改动 tl 文件。
+    # （以前这是个可选项"留空 / 显示原文"，0.5.0 起固定为显示原文：菜单选项与
+    # 界面文本走的是 translate strings 条目，生成时写的就是原文，留空只把对白
+    # 抹成空白，同一个场景里两套表现。）
     # ---------------------------------------------------------------------
     _livetl_prev_say_filter = config.say_menu_text_filter
 
@@ -1133,9 +1130,6 @@ init 10 python:
 
         # 已经翻过（有内容）就原样显示
         if what and what.strip():
-            return what
-
-        if not livetl_show_source_when_empty:
             return what
 
         # 没翻过：用原文顶上
