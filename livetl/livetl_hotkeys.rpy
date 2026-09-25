@@ -23,6 +23,13 @@
 # 捕获期间按住 Ctrl 还会触发引擎的快进：它的判断跑在整个渲染树之前
 # （renpy.display.behavior.skipping() 在 root_widget.event() 之上），
 # 捕获层拦不住它开始，只能在它开始之后立刻停掉。
+#
+# 还有一处顺序问题决定快捷键能不能用：screen 里的 key 语句在渲染树里排在
+# 输入框前面，而事件是从后往前分发的 —— 真正先拿到按键的是输入框。引擎的
+# Input 一认"可打印键"就把它当打字吃掉，所以带字母的快捷键永远轮不到 key
+# 语句；而 SDL 对可打印字符还会再补一个 TEXTINPUT，那个又会漏进输入框
+# （实测：绑 Shift+R 后按快捷键，输入框里多出一个 R）。输入框那边因此要
+# 把快捷键的按键让出来、并吞掉随之而来的文本（见 livetl_engine_input.rpy）。
 # =============================================================================
 
 init -50 python:
@@ -367,6 +374,72 @@ init -50 python:
     # 设置界面用的一组包装：读行、进入捕获态、处理捕获到的按键
     # ---------------------------------------------------------------------
 
+    def livetl_hotkey_live_keys():
+        """此刻生效的快捷键：[(动作名, keysym), ...]；界面上的 key 语句照这个挂。
+
+        "此刻生效"要和面板的状态一致：显示 / 折叠与拾取在面板折叠时也要能用
+        （否则面板收起来就叫不回来了），提交 / 重载 / 清空只在写着译文时才挂
+        （否则会抢走游戏自己的按键）。
+        """
+        names = ["toggle"]
+
+        if not store.livetl_pick_active:
+            names.append("pick")
+
+        if (store.livetl_visible and (not store.livetl_pick_active)
+                and (not livetl_need_setup()) and (store.livetl_mode != "dup")):
+            names.extend(["submit", "reload", "clear"])
+
+        rv = []
+        taken = []
+
+        for name in names:
+            keysym = livetl_hotkey_bound(name)
+
+            if keysym and (keysym not in taken):
+                rv.append((name, keysym))
+                taken.append(keysym)
+
+        return rv
+
+    def livetl_hotkey_match_event(ev):
+        """这个事件是不是某个正在生效的快捷键；是就返回它的 keysym，否则返回 ""。
+
+        面板输入框用这个判定"要不要让路"：它排在 key 语句后面（先收到事件），
+        不让路的话，带字母的组合永远触发不了（见文件头的说明）。
+        """
+        for _name, keysym in livetl_hotkey_live_keys():
+            try:
+                if renpy.map_event(ev, keysym):
+                    return keysym
+            except Exception as e:
+                # 认不出来的键名不该让整个输入框罢工
+                livetl_log("hotkey match failed for {!r}: {!r}".format(keysym, e))
+
+        return ""
+
+    def livetl_hotkey_action(action):
+        """动作名 → 可以挂在 key 上的 Action。"""
+        if action == "clear":
+            # 清空本来就是一个 Action（带确认框），按钮与快捷键共用同一处文案
+            return livetl_clear_action()
+
+        return Function(livetl_hotkey_run, action)
+
+    def livetl_hotkey_run(action):
+        """执行一个快捷键动作（toggle / pick / submit / reload）。"""
+        if action == "toggle":
+            livetl_toggle_visible()
+        elif action == "pick":
+            if not store.livetl_pick_active:
+                livetl_pick_enter()
+        elif action == "submit":
+            livetl_submit()
+        elif action == "reload":
+            livetl_reload()
+        else:
+            livetl_log("hotkey run: 没有这个动作 {!r}".format(action))
+
     def livetl_hotkey_rows():
         """设置界面要显示的行：[(动作名, 说明, 当前键的显示名), ...]。"""
         return [
@@ -408,11 +481,24 @@ init -50 python:
         """
         action = livetl_hotkey_capture_action()
 
-        if not action or ev.type != pygame.KEYDOWN:
+        if not action:
+            return False
+
+        # Shift+字母 这类按键：KEYDOWN 被吞掉之后，SDL 还会补一个 TEXTINPUT，
+        # 不一起吞的话那个字母照样会落进输入框（实测：绑 Shift+R 时多出一个 R）
+        if ev.type == pygame.TEXTINPUT:
+            expected = livetl_state_pop("livetl_hotkey_capture_text", "")
+
+            return bool(expected) and (getattr(ev, "text", "") == expected)
+
+        if ev.type != pygame.KEYDOWN:
             return False
 
         # Ctrl 那一下会先被引擎当成快进（它在渲染树之前判断），马上停掉
         _livetl_hotkey_stop_skipping("捕获中")
+
+        # 这一下可能带出一个字符：记下来，等紧随其后的 TEXTINPUT 一起吞掉
+        livetl_state_set("livetl_hotkey_capture_text", getattr(ev, "unicode", "") or "")
 
         keysym = livetl_hotkey_from_event(ev)
 

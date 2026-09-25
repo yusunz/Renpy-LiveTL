@@ -219,32 +219,14 @@ init 10 python:
 screen livetl_panel():
     zorder 500
 
-    # 全局快捷键：显示 / 折叠面板、进入拾取模式。
-    # 这两个折叠之后也要能用（否则面板收起来了就叫不回来），挂在屏幕顶层。
-    $ _livetl_key_toggle = livetl_hotkey_bound("toggle")
-    $ _livetl_key_pick = livetl_hotkey_bound("pick")
-
-    if _livetl_key_toggle:
-        key _livetl_key_toggle action Function(livetl_toggle_visible)
-
-    if _livetl_key_pick and not livetl_pick_active:
-        key _livetl_key_pick action Function(livetl_pick_enter)
-
-    # 只在面板展开时生效的快捷键：提交 / 重载 / 清空。
-    # 它们只在写字时有意义，折叠后不绑，免得抢走游戏自己的按键。
-    if livetl_visible and (not livetl_pick_active) and (not livetl_need_setup()) and (livetl_mode != "dup"):
-        $ _livetl_key_submit = livetl_hotkey_bound("submit")
-        $ _livetl_key_reload = livetl_hotkey_bound("reload")
-        $ _livetl_key_clear = livetl_hotkey_bound("clear")
-
-        if _livetl_key_submit:
-            key _livetl_key_submit action Function(livetl_submit)
-
-        if _livetl_key_reload:
-            key _livetl_key_reload action Function(livetl_reload)
-
-        if _livetl_key_clear:
-            key _livetl_key_clear action livetl_clear_action()
+    # 快捷键：哪个动作此刻生效由 livetl_hotkey_live_keys() 决定（折叠后
+    # 只留显示 / 折叠与拾取，写着译文时再加上提交 / 重载 / 清空）。
+    #
+    # 位置放在 screen 最前面：key 变成的 Keymap 在渲染树里排在输入框前面，
+    # 而事件是从后往前分发的，所以它比输入框晚一步拿到按键 —— 输入框那边
+    # 负责把快捷键的按键让出来（见 livetl_engine_input.rpy 的说明）。
+    for _livetl_key_action, _livetl_key_sym in livetl_hotkey_live_keys():
+        key _livetl_key_sym action livetl_hotkey_action(_livetl_key_action)
 
     # 面板位置（右上角或右下角）
     $ _bottom = (livetl_position == "bottom-right")
@@ -295,9 +277,10 @@ screen livetl_panel():
                 text "目标语言（即 tl 目录名），例如 schinese、tchinese、japanese：" style "livetl_source"
 
                 # 语言输入框：和译文输入框用同一个控件（鼠标定位光标、
-                # 拖拽选区、点击不再穿透）
+                # 拖拽选区、点击不再穿透）；绑成快捷键的按键要让它过路
                 $ _livetl_language_widget = livetl_engine_input_widget(
-                      livetl_language_value, 40, style="livetl_input", size=22)
+                      livetl_language_value, 40, style="livetl_input", size=22,
+                      hotkey_filter=livetl_hotkey_match_event)
                 add _livetl_language_widget id "livetl_language_input"
 
                 # 未翻译的句子怎么显示，交给译者选
@@ -453,9 +436,10 @@ screen livetl_edit_body():
     # 译文输入框：已保存过就填进去方便修改，否则留空。
     # 用自带鼠标支持的控件（官方 Input 点不进、也挡不住点击）：
     # 点一下定位光标、拖拽选词、双击选词、Ctrl+A 全选、Ctrl+X 剪切，
-    # Ctrl+Z / Ctrl+Y 撤销与重做。
+    # Ctrl+Z / Ctrl+Y 撤销与重做；绑成快捷键的按键要让给面板的 key 语句。
     $ _livetl_input_widget = livetl_engine_input_widget(
-          livetl_value, 2000, style="livetl_input", size=22)
+          livetl_value, 2000, style="livetl_input", size=22,
+          hotkey_filter=livetl_hotkey_match_event)
     add _livetl_input_widget id "livetl_input"
 
     # 提交与重载分开，便于连续翻译
