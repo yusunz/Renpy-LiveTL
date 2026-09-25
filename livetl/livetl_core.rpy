@@ -13,6 +13,7 @@
 init -50 python:
     import os
     import re
+    import time
 
     # ---------------------------------------------------------------------
     # 运行状态（界面会读取这些值）
@@ -168,132 +169,9 @@ init -50 python:
         except Exception:
             return False
 
-    # 语言名同时是 tl/<语言>/ 的目录名与 translate 语句里的语言名。
-    # 引擎的名字 token 规则是"字母或下划线开头，后面跟字母、数字、下划线"：
-    # 实测连字符会让生成的文件解析不了（translate pt-br start_x: →
-    # expected 'hash' not found），数字开头是 expected 'name' not found。
-    _livetl_language_pattern = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-    # 引擎保留名：`translate None <id>:` 是"默认语言"的写法，官方生成器也把
-    # 字符串 "None" 当默认语言处理（generation.write_translates 里写明了），
-    # 所以它不能当目标语言 —— 填了只会得到一堆语义不对的文件。
-    _livetl_language_reserved = ("None",)
-
-    def livetl_language_valid(language):
-        """这个语言名能不能当目标语言用。"""
-        language = str(language or "")
-
-        if (not language) or (language in _livetl_language_reserved):
-            return False
-
-        return _livetl_language_pattern.match(language) is not None
-
-    def livetl_normalize_language(text):
-        """界面上的输入 → 规范化的语言名；不合法时返回 ""。
-
-        空格换成下划线（"simplified chinese" → "simplified_chinese"），
-        其余原样交给 livetl_language_valid() 判断。
-        """
-        language = str(text or "").strip().replace(" ", "_")
-
-        if not livetl_language_valid(language):
-            return ""
-
-        return language
-
-    def livetl_language_hint():
-        """语言名不合法时给译者看的一句话。"""
-        return "目标语言只能用字母、数字、下划线，且不能以数字开头（例如 schinese）；None 是引擎保留名"
-
-    def livetl_language_dirs():
-        """game/tl/ 下已有的语言目录名（原样大小写）；一个都没有时返回 []。
-
-        tl 目录的位置由引擎隔离层负责（那是引擎事实），这里只负责列目录：
-        语言名就是 tl 下的目录名，这些名字才是"磁盘上的事实"。
-        """
-        root = livetl_engine_tl_root()
-
-        if not root or not os.path.isdir(root):
-            return []
-
-        try:
-            names = os.listdir(root)
-        except Exception as e:
-            livetl_log("language dirs: {!r}".format(e))
-            return []
-
-        return sorted(
-            name for name in names
-            if os.path.isdir(os.path.join(root, name))
-        )
-
-    def livetl_resolve_language(name):
-        """把语言名跟磁盘上已有的 tl 目录对齐，返回 (最终用的名字, 说明)。
-
-        语言名同时是目录名和 `translate <语言> <id>:` 里的名字，而 Windows 与
-        macOS 的文件系统不区分大小写：填 chinese 时磁盘上若已经有 tl/Chinese，
-        按填的字符拼路径就会写进那个目录，把 `translate chinese` 混进别人已经
-        翻好的文件里。所以磁盘上的写法优先；说明是给译者看的一句话（没有要
-        说明的事情时是空串）。两边都没有时用填的名字，第一次生成时建出来。
-
-        语言名只允许 ASCII 字母数字下划线，所以大小写比较用 lower() 就够。
-        """
-        name = str(name or "").strip()
-
-        if not name:
-            return "", ""
-
-        dirs = livetl_language_dirs()
-
-        if name in dirs:
-            return name, ""
-
-        lowered = name.lower()
-
-        for existing in dirs:
-            if existing.lower() == lowered:
-                return existing, "已有 tl/{}，按磁盘上的写法用它".format(existing)
-
-        return name, ""
-
-    def livetl_target_language():
-        """当前目标语言（已与磁盘上的 tl 目录对齐）。
-
-        优先级：本次运行选过的（session）＞ 项目配置里的 livetl_language。
-        persistent 里那份是 0.2.9 以前的旧记录，只在设置界面里当预填值用。
-        """
-        language = livetl_setting_get("language") or livetl_language
-        return livetl_resolve_language(language)[0]
-
-    def livetl_set_language(language):
-        """记下这次运行的目标语言（store 镜像 + session，不写文件）。
-
-        落盘那一步在 livetl_commit_language()：只有译者点【开始翻译】才算是
-        "选定这个项目的语言"。
-        """
-        store.livetl_language = language
-        livetl_setting_set("language", language)
-        livetl_log("language set to {!r}".format(language))
-
-    def livetl_commit_language(language, path=None):
-        """把目标语言写回 livetl_config.rpy 的 livetl_language 那一行。
-
-        语言是"这个项目在做什么"，跟着项目走；配置改不了（打包后只剩 .rpyc）
-        时本次运行仍然生效，由调用方在状态栏说明。
-        返回 (备份文件名, 错误信息)。`path` 是给测试用的口子，正常调用不用传。
-        """
-        # 语言名已经过 livetl_language_valid()，只有字母数字下划线，
-        # 当字面量写进配置文件是安全的
-        backup, error = livetl_config_set_value(
-            "livetl_language", '"{}"'.format(language), path=path,
-        )
-
-        if error:
-            livetl_log("language config not updated: {}".format(error))
-        else:
-            livetl_log("language committed: {!r} (backup {})".format(language, backup))
-
-        return backup, error
+    # 目标语言（名字、目录、项目侧的记录）都在 livetl_language.rpy 里：
+    # 语言名是引擎名（translate 语句里的那个），目录是译文实际所在的 tl
+    # 子目录，两者可以不一样，所以读写都要按目录走。这里只管"当前台词"。
 
     # ---------------------------------------------------------------------
     # 定位当前台词
@@ -317,16 +195,13 @@ init -50 python:
     # tl 文件读写
     # ---------------------------------------------------------------------
 
-    def livetl_read_entry(language, tid):
-        """读取这一句已有的译文；文件或条目不存在时返回 None。"""
-        path = livetl_engine_tl_path(language, tid)
-        if not path or not os.path.exists(path):
+    def _livetl_file_block_value(path, header):
+        """一个文件里某个块头的译文："" 是"有这条但译文为空"，None 是没有这条。"""
+        try:
+            with open(path, "r", encoding="utf-8-sig") as f:
+                lines = f.read().split("\n")
+        except Exception:
             return None
-
-        header = "translate {} {}:".format(language, tid.replace(".", "_"))
-
-        with open(path, "r", encoding="utf-8-sig") as f:
-            lines = f.read().split("\n")
 
         for i, line in enumerate(lines):
             if line.rstrip() != header:
@@ -343,28 +218,108 @@ init -50 python:
 
         return None
 
+    def _livetl_file_has_block(path, header):
+        """文件里有没有这个块头（文件不在、读不了都算没有）。"""
+        try:
+            with open(path, "r", encoding="utf-8-sig", errors="ignore") as f:
+                for line in f:
+                    if line.rstrip() == header:
+                        return True
+        except Exception:
+            return False
+
+        return False
+
+    def livetl_entry_files(language, tid):
+        """这条 tid 的译文在哪些文件里（按加载顺序，最早的在前）。
+
+        引擎按加载顺序覆盖，所以"最后那个文件"才是画面上生效的那一份。
+        先按官方布局推（tl/<目录>/<源脚本名>，语言涉及的每个目录各一份），
+        都没命中时退回扫描结果 —— 有的游戏把所有译文塞在一个文件里。
+        """
+        header = "translate {} {}:".format(language, tid.replace(".", "_"))
+
+        # 引擎自己登记的那份最权威（后加载的覆盖先加载的，有探针钉着）
+        registered = livetl_engine_translation_file(language, tid)
+
+        if registered:
+            parts = registered.split("/")[1:]
+            path = os.path.join(livetl_engine_tl_root(), *parts) if parts else ""
+
+            if path and os.path.isfile(path) and _livetl_file_has_block(path, header):
+                return [path]
+
+        rv = []
+        # 语言还没有目录时按官方规则用语言名当目录（第一次生成时建出来）
+        dirs = livetl_language_dirs_of(language) or [language]
+
+        for directory in dirs:
+            path = livetl_engine_tl_path(language, tid, directory=directory)
+
+            if path and (path not in rv) and _livetl_file_has_block(path, header):
+                rv.append(path)
+
+        if not rv:
+            rv = list(livetl_scan_tl_entry_files(language).get(tid, []))
+
+        return sorted(rv)
+
+    def livetl_read_entry(language, tid):
+        """读取这一句已有的译文；文件或条目不存在时返回 None。
+
+        同一个语言散在多个目录里时，引擎按加载顺序取最后一份，这里也一样。
+        """
+        resolved, _directory, _note = livetl_resolve_language(language)
+        language = resolved or str(language or "")
+
+        header = "translate {} {}:".format(language, tid.replace(".", "_"))
+        value = None
+
+        for path in livetl_entry_files(language, tid):
+            got = _livetl_file_block_value(path, header)
+
+            if got is not None:
+                # 后加载的覆盖先加载的
+                value = got
+
+        return value
+
     def livetl_write_entry(language, tid, text):
-        """把译文写回 tl 文件中的这一条；文件里其它内容保持原样。"""
+        """把译文写回 tl 文件中的这一条；文件里其它内容保持原样。
+
+        位置规则：这一条已经有块时，改在那个块所在的文件里（多个时改生效的
+        那一份，否则会被后加载的那份盖住）；还没有这条时才在新语言的主目录里
+        新建。语言名与目录名不一致（tl/out/ 里放着 translate chinese）时，
+        靠的就是这条规则。
+        """
         # 语言名可能来自调用方（设置界面刚确认时传的是输入框里的值），这里再
-        # 与磁盘对齐一次：写进别人翻译目录这种代价，一次都不该发生。
-        language = livetl_resolve_language(language)[0]
+        # 解析一次：写进别人翻译文件这种代价，一次都不该发生。
+        resolved, directory, _note = livetl_resolve_language(language)
+        language = resolved or str(language or "")
 
-        filename, linenumber = livetl_engine_source_location(tid)
-        if not filename:
-            return None
+        paths = livetl_entry_files(language, tid)
 
-        path = livetl_engine_tl_path(language, tid)
+        if paths:
+            # 已经有这一条：改生效的那一份
+            path = paths[-1]
+        else:
+            path = livetl_engine_tl_path(language, tid, directory=directory or language)
+
         if path is None:
             return None
 
-        new_lines = livetl_engine_block_code(tid, text)
-        header = "translate {} {}:".format(language, tid.replace(".", "_"))
+        if not paths:
+            return livetl_append_block(path, language, tid, text)
 
-        if os.path.exists(path):
+        header = "translate {} {}:".format(language, tid.replace(".", "_"))
+        new_lines = livetl_engine_block_code(tid, text)
+
+        try:
             with open(path, "r", encoding="utf-8-sig") as f:
                 lines = f.read().split("\n")
-        else:
-            lines = []
+        except Exception as e:
+            livetl_log("write_entry: 读取失败 {!r}".format(e))
+            return None
 
         idx = None
         for i, line in enumerate(lines):
@@ -373,42 +328,98 @@ init -50 python:
                 break
 
         if idx is None:
-            # 文件里还没有这一条：按官方格式追加一个块
-            lines.append("")
-            lines.append("# {}:{}".format(filename, linenumber))
-            lines.append(header)
-            lines.append("")
-            for code in livetl_engine_block_code(tid):
-                lines.append("    # " + code.strip())
-            lines.extend(new_lines)
-        else:
-            # 已经有了这一条：只替换块里的译文行
-            j = idx + 1
-            k = 0
-            while j < len(lines) and k < len(new_lines):
-                s = lines[j].strip()
-                if not s or s.startswith("#"):
-                    j += 1
-                    continue
-                lines[j] = new_lines[k]
-                k += 1
-                j += 1
+            return livetl_append_block(path, language, tid, text)
 
+        # 只替换块里的译文行，其余保持原样
+        j = idx + 1
+        k = 0
+        while j < len(lines) and k < len(new_lines):
+            s = lines[j].strip()
+            if not s or s.startswith("#"):
+                j += 1
+                continue
+            lines[j] = new_lines[k]
+            k += 1
+            j += 1
+
+        written = livetl_write_lines(path, lines)
+
+        if written:
+            livetl_log("write_entry: {} <- {!r}".format(tid, text))
+
+        return written
+
+    def livetl_write_lines(path, lines):
+        """把行写回文件：父目录按需创建，收尾必须有换行。
+
+        收尾不补换行的话，之后再往这个文件里追加内容时新内容会和最后一行挤在
+        一起（Ren'Py 能解析，但格式就乱了）。
+        """
         dirname = os.path.dirname(path)
-        if not os.path.isdir(dirname):
+
+        if dirname and not os.path.isdir(dirname):
             os.makedirs(dirname)
 
-        # 收尾必须是换行：否则之后再往这个文件里追加内容时，
-        # 新内容会和最后一行挤在一起（Ren'Py 虽然能解析，但格式就乱了）。
         content = "\n".join(lines)
         if not content.endswith("\n"):
             content += "\n"
 
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception as e:
+            livetl_log("write file {}: {!r}".format(path, e))
+            return None
 
-        livetl_log("write_entry: {} <- {!r}".format(tid, text))
         return path
+
+    def livetl_append_block(path, language, tid, text):
+        """按官方格式往文件末尾追加一个 translate 块；写不了时返回 None。
+
+        `# 源文件:行号` + `# 原文` + 译文，与官方生成器写出来的块一致。
+        原文取不到（不是默认语言里的台词）时不写：那样只会留下一个空块，
+        而空块会让 Ren'Py 直接报错。
+        """
+        if not path:
+            return None
+
+        block = livetl_engine_block_code(tid)
+
+        if not block:
+            livetl_log("append block: 拿不到 {} 的原文，跳过".format(tid))
+            return None
+
+        lines = []
+
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8-sig") as f:
+                    lines = f.read().split("\n")
+            except Exception as e:
+                livetl_log("append block: 读取失败 {!r}".format(e))
+                return None
+
+        filename, linenumber = livetl_engine_source_location(tid)
+
+        lines.append("")
+
+        if filename:
+            lines.append("# {}:{}".format(filename, linenumber))
+
+        lines.append("translate {} {}:".format(language, tid.replace(".", "_")))
+        lines.append("")
+
+        for code in block:
+            lines.append("    # " + code.strip())
+
+        lines.extend(livetl_engine_block_code(tid, text))
+
+        written = livetl_write_lines(path, lines)
+
+        if written:
+            livetl_log("append block: {} <- {!r} ({})".format(tid, text, path))
+
+        return written
 
     # ---------------------------------------------------------------------
     # 生成模板与热重载
@@ -417,19 +428,38 @@ init -50 python:
     # tl 里除了台词块，还有这几种特殊的 translate 块（它们不是台词）
     _livetl_special_translates = ("strings", "python", "style")
 
-    def livetl_scan_tl_identifiers(language=None):
-        """tl/<语言>/ 里已经写过的台词标识符。
+    def livetl_scan_tl_entry_files(language=None, force=False):
+        """扫描这个语言的 tl 文件：{标识符: [文件, ...]}（文件按加载顺序）。
 
         只认 `translate <语言> <标识符>:` 这种台词块，
-        `strings` / `python` / `style` 这类特殊块不算。
+        `strings` / `python` / `style` 这类特殊块不算（那些在
+        livetl_strings.rpy 的索引里）。语言涉及的所有目录都扫，所以目录名与
+        语言名不一致、或者同一个语言散在多个目录时也能看全。
+        结果缓存在 session 里（键里带各文件的 mtime/size，外部改过会自动重建），
+        插件写完文件后由 livetl_invalidate_tl_indexes() 作废。
         """
         if language is None:
             language = livetl_target_language()
 
-        pattern = re.compile(r"^\s*translate\s+" + re.escape(language) + r"\s+(\S+)\s*:\s*$")
-        rv = set()
+        files = livetl_iter_tl_files(language)
+        stamp = []
 
-        for path in livetl_iter_tl_files(language):
+        for path in files:
+            try:
+                st = os.stat(path)
+                stamp.append((path, int(st.st_mtime), st.st_size))
+            except Exception:
+                pass
+
+        cached = livetl_state_get("livetl_tl_entry_files")
+
+        if (not force) and cached and (cached[0] == language) and (cached[1] == stamp):
+            return cached[2]
+
+        pattern = re.compile(r"^\s*translate\s+" + re.escape(str(language)) + r"\s+(\S+)\s*:\s*$")
+        rv = {}
+
+        for path in files:
             try:
                 # 用 utf-8 读、手动去掉 BOM：不依赖 utf-8-sig（部分环境没有）
                 with open(path, "r", encoding="utf-8", errors="ignore") as f:
@@ -446,9 +476,30 @@ init -50 python:
                 if (m is None) or (m.group(1) in _livetl_special_translates):
                     continue
 
-                rv.add(m.group(1))
+                places = rv.setdefault(m.group(1), [])
 
+                if path not in places:
+                    places.append(path)
+
+        for places in rv.values():
+            places.sort()
+
+        livetl_state_set("livetl_tl_entry_files", (language, stamp, rv))
         return rv
+
+    def livetl_scan_tl_identifiers(language=None):
+        """这个语言已经写过的台词标识符（集合）。"""
+        return set(livetl_scan_tl_entry_files(language).keys())
+
+    def livetl_invalidate_tl_indexes():
+        """写回 / 生成 / 清理之后把 tl 相关的缓存全部作废。
+
+        语言索引（哪些语言在哪些目录里）、台词 → 文件、字符串索引，三份都是
+        从 tl 文件读出来的，改了文件就必须重建。
+        """
+        livetl_invalidate_language_index()
+        livetl_state_pop("livetl_tl_entry_files", None)
+        livetl_invalidate_string_index()
 
     def livetl_count_tl_entries(language=None):
         """tl/<语言>/ 里现有的条目数：台词块 + 字符串条目。
@@ -531,24 +582,55 @@ init -50 python:
             livetl_engine_unseed_string_translation(old, seeded["language"])
 
     def livetl_generate_templates(language=None):
-        """增量生成（补全）tl/<语言>/ 下的标准翻译模板。
+        """增量生成（补全）目标语言的翻译模板，返回处理的文件数（manual 时是条目数）。
 
-        直接复用 Ren'Py 自带的翻译生成逻辑，产出的文件与 Launcher 里
-        「生成翻译」完全一致：
-        每个脚本一个文件、每句对话一个 translate 块、原文写在 # 注释里。
-
-        官方生成逻辑本身就是增量的，已经登记过的条目会跳过，所以：
-          - 已经翻好的内容不会被覆盖；
-          - 没有新增内容的文件不会被写，也不会多出 TODO 注释；
-          - 有新增内容的文件会在新增条目前面写一行
-            `# TODO: Translation updated at ...`，方便对照剧本改动。
+        位置规则：
+          * 官方生成器（Launcher 的「生成翻译」用的就是它）只会写
+            tl/<语言名>/<源脚本名>；只有那个路径恰好就是语言的生效目录时
+            才用它，产出与 Launcher 完全一致；
+          * 生效目录是别处时（实测有游戏把 translate chinese 放在 tl/out/），
+            官方生成器写不对地方，改由插件按同一套格式补空条目 —— 判定
+            "缺哪些"仍用官方那套条件（见 livetl_engine.rpy 的 missing_*）。
+        两条路径都是增量的：任何文件里已经有的条目都不会再生成一遍。
         """
         if language is None:
             language = livetl_target_language()
         else:
-            # 显式传进来的名字同样先与磁盘对齐（见 livetl_resolve_language）
-            language = livetl_resolve_language(language)[0]
+            resolved, _directory, _note = livetl_resolve_language(language)
+            language = resolved or str(language or "")
 
+        directory = livetl_language_dir_of(language) or language
+
+        if livetl_official_generator_usable(language, directory):
+            count = livetl_generate_templates_official(language)
+        else:
+            count = livetl_generate_templates_manual(language, directory)
+
+        # 文件变了：三份索引都要重建；顺便清掉"只有表头、没有条目"的
+        # strings 块（这种块会让 Ren'Py 直接报 "expects a non-empty block"，
+        # 整个语言都加载不了）。
+        livetl_invalidate_tl_indexes()
+        livetl_drop_empty_string_blocks(language)
+
+        livetl_engine_register_language(language)
+
+        livetl_log("generate_templates: {} for {!r} (tl/{}/)".format(count, language, directory))
+        return count
+
+    def livetl_official_generator_usable(language, directory):
+        """官方生成器能不能用：它的目标路径是不是就是这个语言的生效目录。
+
+        新建语言时两边指向同一个待建目录（相等）；NTFS 默认不区分大小写时
+        `tl/chinese` 与 `tl/Chinese` 也是同一个物理目录，靠 livetl_same_dir()
+        问文件系统判断 —— 不靠"Windows 一定不区分大小写"这个印象。
+        """
+        if (not language) or (not directory) or (directory == language):
+            return True
+
+        return livetl_same_dir(livetl_language_path(language), livetl_language_path(directory))
+
+    def livetl_generate_templates_official(language):
+        """官方生成器补全 tl/<语言>/（产出的文件与 Launcher 一致）。"""
         # 官方生成器只看内存里的翻译表，而本次运行新写出来的 tl 文件不在表里：
         # 先补登记，生成完再撤掉（见 livetl_seed_existing_entries）。
         seeded = livetl_seed_existing_entries(language)
@@ -556,69 +638,60 @@ init -50 python:
         try:
             # 对话统一生成空字符串（等同 Launcher 的"为翻译生成空字符串"）：
             # "未翻译时显示原文"由显示层处理，不写进文件。
-            count = livetl_engine_generate_templates(language)
+            return livetl_engine_generate_templates(language)
         finally:
             livetl_unseed_existing_entries(seeded)
 
-        # 文件变了：字符串索引要重建；顺便清掉"只有表头、没有条目"的
-        # strings 块（这种块会让 Ren'Py 直接报 "expects a non-empty block"，
-        # 整个语言都加载不了）。
-        livetl_invalidate_string_index()
-        livetl_drop_empty_string_blocks(language)
-
-        livetl_engine_register_language(language)
-
-        livetl_log("generate_templates: scanned {} files for {!r}".format(count, language))
-        return count
-
-    def livetl_mark_path(language):
-        """模板补全标记的位置。
-
-        标记写在项目自己的 tl/<语言>/ 目录里，而不是 persistent：
-        persistent 是存档目录（多个项目可能共用），
-        而 tl 目录是每个游戏独立的。
-        拿不到 tl 目录时返回 ""，调用方会跳过写标记。
-        """
-        root = livetl_engine_tl_root(language)
-
-        if not root:
-            return ""
-
-        return os.path.join(root, ".livetl_generated")
-
-    def livetl_mark_templates_done(language):
-        """记下"这个项目的这个语言已经补全过模板"。"""
+    def _livetl_append_todo(path):
+        """按官方生成器的样子，在文件末尾加一行 TODO 溯源标记。"""
         try:
-            path = livetl_mark_path(language)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write("# TO" + "DO: Translation updated at {}\n\n".format(
+                    time.strftime("%Y-%m-%d %H:%M"),
+                ))
+        except Exception as e:
+            livetl_log("todo marker: {!r}".format(e))
 
-            if not path:
-                return
+    def livetl_generate_templates_manual(language, directory):
+        """按官方格式把缺的条目补进 tl/<directory>/，返回补上的条目数。
 
-            dirname = os.path.dirname(path)
-
-            if not os.path.isdir(dirname):
-                os.makedirs(dirname)
-
-            with open(path, "w", encoding="utf-8") as f:
-                f.write("LiveTL: translation templates generated for {}\n".format(language))
-        except Exception:
-            pass
-
-    def livetl_project_setup_done(language=None):
-        """这个项目是不是已经为这个语言补全过（tl/<语言>/.livetl_generated）。
-
-        这个标记就是"译者已经确认过目标语言"的项目侧记录：它跟着项目
-        （tl 目录）走，不像 persistent 那样跟着机器走。语言不合法、拿不到
-        tl 目录、或者标记还没写时返回 False —— 那些情况本来就该再问一次。
+        只补"哪个文件里都还没有"的条目：已经有的（哪怕在别的目录里、
+        或者是驱动器里别的脚本刚写出来的）一律不动，与官方生成器的增量规则
+        一致。格式对齐官方：`# 文件:行号` + `# 原文` + 空译文，
+        新写到的文件在第一个新条目前面加一行 TODO。
         """
-        if language is None:
-            language = livetl_target_language()
+        existing = livetl_scan_tl_entry_files(language, force=True)
+        touched = set()
+        added = 0
 
-        if not livetl_language_valid(language):
-            return False
+        for tid in livetl_engine_missing_translates(language):
+            if tid in existing:
+                # 已经在别的目录里了（引擎没登记，例如本次运行刚写出来的）
+                continue
 
-        mark = livetl_mark_path(language)
-        return bool(mark) and os.path.exists(mark)
+            path = livetl_engine_tl_path(language, tid, directory=directory)
+
+            if path is None:
+                continue
+
+            if path not in touched:
+                touched.add(path)
+                _livetl_append_todo(path)
+
+            # 直接追加：不要走 livetl_write_entry（那会为每条重新解析一次位置，
+            # 大项目上是平方级开销）
+            if livetl_append_block(path, language, tid, "") is not None:
+                added += 1
+
+        for old in livetl_engine_missing_strings(language):
+            if livetl_lookup_string(old, language) is not None:
+                continue
+
+            if livetl_write_string_entry(old, old) is not None:
+                added += 1
+
+        livetl_log("generate_templates manual: {} entries into tl/{}/".format(added, directory))
+        return added
 
     def livetl_ensure_templates():
         """启动后的第一次交互：为已经选定的语言做一次增量补全。
@@ -977,7 +1050,7 @@ init -50 python:
             rel = livetl_write_string_entry(store.livetl_current_key, text)
 
             if rel:
-                livetl_set_status("已写入 {}（按重载生效）".format(rel))
+                livetl_set_status("已写入 tl/{}（按重载生效）".format(rel))
                 livetl_menu_refresh()
             else:
                 livetl_set_status("写入失败，详见 livetl.log")
@@ -993,7 +1066,10 @@ init -50 python:
 
         path = livetl_write_entry(livetl_target_language(), tid, text)
         if path:
-            livetl_set_status("已写入 " + os.path.basename(path) + "（按重载生效）")
+            livetl_invalidate_tl_indexes()
+            livetl_set_status("已写入 tl/{}（按重载生效）".format(
+                os.path.relpath(path, livetl_engine_tl_root()).replace("\\", "/"),
+            ))
         else:
             livetl_set_status("写入失败，详见 livetl.log")
 
@@ -1033,6 +1109,7 @@ init -50 python:
         path = livetl_write_entry(livetl_target_language(), tid, "")
 
         if path:
+            livetl_invalidate_tl_indexes()
             store.livetl_input = ""
             livetl_set_status("已清空这一句的译文（按重载生效）")
         else:

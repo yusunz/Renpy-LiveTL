@@ -266,118 +266,127 @@ screen livetl_panel():
             # 鼠标在窗口内时事件不再穿透到下层）。
             modal True
 
-            vbox:
-                spacing 8
+            # 设置页比一屏长（语言列表、字体列表、快捷键都在这里）：整页可滚，
+            # 窗口小的时候也不会有内容被切在屏幕外。
+            viewport:
+                ymaximum livetl_setup_panel_height()
+                scrollbars "vertical"
+                mousewheel True
 
-                hbox:
-                    spacing 12
-                    text "LiveTL 翻译模式" style "livetl_title"
-                    textbutton "折叠" style "livetl_action" action Function(livetl_set_visible, False)
+                vbox:
+                    spacing 8
 
-                text "目标语言（即 tl 目录名），例如 schinese、tchinese、japanese：" style "livetl_source"
+                    hbox:
+                        spacing 12
+                        text "LiveTL 翻译模式" style "livetl_title"
+                        textbutton "折叠" style "livetl_action" action Function(livetl_set_visible, False)
 
-                # 语言名同时是目录名与 translate 语句里的名字，引擎区分大小写：
-                # 磁盘上已经有同名目录（可能只是大小写不同）时按磁盘上的写法用它，
-                # 最终用的名字会回填到上面的输入框里。
-                text "tl 下已有的同名目录会直接沿用（大小写以目录为准）；None 是引擎保留名。" style "livetl_hint"
+                    text "目标语言（就是 translate 语句里的语言名，例如 schinese、tchinese）：" style "livetl_source"
 
-                # 语言输入框：和译文输入框用同一个控件（鼠标定位光标、
-                # 拖拽选区、点击不再穿透）；绑成快捷键的按键要让它过路
-                $ _livetl_language_widget = livetl_engine_input_widget(
-                      livetl_language_value, 40, style="livetl_input", size=22,
-                      hotkey_filter=livetl_hotkey_input_mode)
-                add _livetl_language_widget id "livetl_language_input"
+                    # 语言名是引擎身份，目录只是文件位置：填一个新名字会新建
+                    # tl/<语言名>/，点下面已有的语言则翻译它们所在的那个目录。
+                    text "填新名字 = 新建 tl/<语言名>/；点下面已有的语言 = 翻译它，写入它所在的目录。" style "livetl_hint"
 
-                # 未翻译的句子怎么显示，交给译者选
-                text "没翻过的句子在游戏里：" style "livetl_source"
+                    # 语言输入框：和译文输入框用同一个控件（鼠标定位光标、
+                    # 拖拽选区、点击不再穿透）；绑成快捷键的按键要让它过路
+                    $ _livetl_language_widget = livetl_engine_input_widget(
+                          livetl_language_value, 40, style="livetl_input", size=22,
+                          hotkey_filter=livetl_hotkey_input_mode)
+                    add _livetl_language_widget id "livetl_language_input"
 
-                hbox:
-                    spacing 10
+                    # 已有的语言列表（单独一个 screen，见 livetl_language_list）
+                    use livetl_language_list()
 
-                    textbutton "留空":
-                        style "livetl_action"
-                        action Function(livetl_set_show_source, False)
-                        selected (not livetl_show_source_when_empty)
+                    # 未翻译的句子怎么显示，交给译者选
+                    text "没翻过的句子在游戏里：" style "livetl_source"
 
-                    textbutton "显示原文":
-                        style "livetl_action"
-                        action Function(livetl_set_show_source, True)
-                        selected (livetl_show_source_when_empty)
+                    hbox:
+                        spacing 10
 
-                hbox:
-                    spacing 10
-                    textbutton "开始翻译" style "livetl_action" action Function(livetl_confirm_language)
-                    textbutton "检查重复" style "livetl_action" action Function(livetl_dup_open)
+                        textbutton "留空":
+                            style "livetl_action"
+                            action Function(livetl_set_show_source, False)
+                            selected (not livetl_show_source_when_empty)
 
-                # 换字体：点按钮出字体列表；也可以把字体文件直接拖进窗口
-                $ _font_display = livetl_font_display_name()
-                text "游戏字体：[_font_display]" style "livetl_source"
+                        textbutton "显示原文":
+                            style "livetl_action"
+                            action Function(livetl_set_show_source, True)
+                            selected (livetl_show_source_when_empty)
 
-                hbox:
-                    spacing 10
+                    hbox:
+                        spacing 10
+                        textbutton "开始翻译" style "livetl_action" action Function(livetl_confirm_language)
+                        textbutton "检查重复" style "livetl_action" action Function(livetl_dup_open)
 
-                    textbutton ("收起字体列表" if livetl_font_panel_open else "选择字体"):
-                        style "livetl_action"
-                        action Function(livetl_font_panel_toggle)
+                    # 换字体：点按钮出字体列表；也可以把字体文件直接拖进窗口
+                    $ _font_display = livetl_font_display_name()
+                    text "游戏字体：[_font_display]" style "livetl_source"
 
-                if livetl_font_panel_open:
+                    hbox:
+                        spacing 10
 
-                    if livetl_font_choices:
-                        viewport:
-                            ymaximum livetl_menu_list_height
-                            scrollbars "vertical"
-                            mousewheel True
+                        textbutton ("收起字体列表" if livetl_font_panel_open else "选择字体"):
+                            style "livetl_action"
+                            action Function(livetl_font_panel_toggle)
 
-                            vbox:
-                                spacing 2
+                    if livetl_font_panel_open:
 
-                                for _livetl_font_choice in livetl_font_choices:
-                                    $ _livetl_font_choice_text = livetl_font_choice_text(_livetl_font_choice)
-                                    textbutton "[_livetl_font_choice_text]":
-                                        style "livetl_menu_item"
-                                        selected (_livetl_font_choice["path"] == livetl_font)
-                                        action Function(livetl_font_choose, _livetl_font_choice["path"])
+                        if livetl_font_choices:
+                            viewport:
+                                ymaximum livetl_menu_list_height
+                                scrollbars "vertical"
+                                mousewheel True
+
+                                vbox:
+                                    spacing 2
+
+                                    for _livetl_font_choice in livetl_font_choices:
+                                        $ _livetl_font_choice_text = livetl_font_choice_text(_livetl_font_choice)
+                                        textbutton "[_livetl_font_choice_text]":
+                                            style "livetl_menu_item"
+                                            selected (_livetl_font_choice["path"] == livetl_font)
+                                            action Function(livetl_font_choose, _livetl_font_choice["path"])
+                        else:
+                            text "livetl/fonts/ 里没有可用的字体文件" style "livetl_status"
+
+                        # 拖放区：方框只是给译者瞄准用的，拖到窗口里就算数
+                        frame:
+                            background "#ffffff18"
+                            padding (12, 10)
+                            xfill True
+
+                            text "把字体文件拖到这里" style "livetl_source" xalign 0.5
+
+                        add livetl_font_drop_target
+
+                    # 快捷键：点【改键】再按一个键就能绑上
+                    $ _livetl_capture_label = livetl_hotkey_capture_label()
+
+                    if _livetl_capture_label:
+                        text "按下要绑给【[_livetl_capture_label]】的键：Esc 取消，退格恢复缺省" style "livetl_status"
                     else:
-                        text "livetl/fonts/ 里没有可用的字体文件" style "livetl_status"
+                        text "快捷键" style "livetl_source"
+                        text "字母和数字要留给输入框打字，绑的时候请用功能键，或者加 Ctrl / Alt / Shift" size 16 style "livetl_source"
 
-                    # 拖放区：方框只是给译者瞄准用的，拖到窗口里就算数
-                    frame:
-                        background "#ffffff18"
-                        padding (12, 10)
-                        xfill True
+                        for _livetl_hotkey_row in livetl_hotkey_rows():
+                            hbox:
+                                spacing 8
 
-                        text "把字体文件拖到这里" style "livetl_source" xalign 0.5
+                                text "    [_livetl_hotkey_row[1]]" style "livetl_source" xsize 200
+                                text "[_livetl_hotkey_row[2]]" style "livetl_source" xsize 90
+                                textbutton "改键":
+                                    style "livetl_action"
+                                    action Function(livetl_hotkey_capture_start, _livetl_hotkey_row[0])
+                                textbutton "清除":
+                                    style "livetl_action"
+                                    action Function(livetl_hotkey_clear_row, _livetl_hotkey_row[0])
 
-                    add livetl_font_drop_target
+                    # 捕获层：点了【改键】之后由它接住下一个按键
+                    add livetl_hotkey_capture_target
 
-                # 快捷键：点【改键】再按一个键就能绑上
-                $ _livetl_capture_label = livetl_hotkey_capture_label()
-
-                if _livetl_capture_label:
-                    text "按下要绑给【[_livetl_capture_label]】的键：Esc 取消，退格恢复缺省" style "livetl_status"
-                else:
-                    text "快捷键" style "livetl_source"
-                    text "字母和数字要留给输入框打字，绑的时候请用功能键，或者加 Ctrl / Alt / Shift" size 16 style "livetl_source"
-
-                    for _livetl_hotkey_row in livetl_hotkey_rows():
-                        hbox:
-                            spacing 8
-
-                            text "    [_livetl_hotkey_row[1]]" style "livetl_source" xsize 200
-                            text "[_livetl_hotkey_row[2]]" style "livetl_source" xsize 90
-                            textbutton "改键":
-                                style "livetl_action"
-                                action Function(livetl_hotkey_capture_start, _livetl_hotkey_row[0])
-                            textbutton "清除":
-                                style "livetl_action"
-                                action Function(livetl_hotkey_clear_row, _livetl_hotkey_row[0])
-
-                # 捕获层：点了【改键】之后由它接住下一个按键
-                add livetl_hotkey_capture_target
-
-                # 设置界面也要有反馈：否则点【检查重复】之类的操作看不到结果
-                if livetl_status:
-                    text "[livetl_status]" style "livetl_status"
+                    # 设置界面也要有反馈：否则点【检查重复】之类的操作看不到结果
+                    if livetl_status:
+                        text "[livetl_status]" style "livetl_status"
 
     else:
 
@@ -424,6 +433,36 @@ screen livetl_panel():
 # -----------------------------------------------------------------------------
 # 编辑区：原文 + 输入框 + 操作按钮（对话与字符串条目共用）
 # -----------------------------------------------------------------------------
+
+screen livetl_language_list():
+    # 设置页里的"tl 目录下已有"列表。
+    #
+    # 单独一个 screen：设置页本身已经很长（语言、字体、快捷键），列表再长一级
+    # 会把缩进撑得很难读；`use` 进来以后设置页那一行只管位置。
+    # 语言名取自 translate 语句，所以目录名与语言名不一致的游戏也会列对；
+    # 点一行只把名字填进输入框，真正动手还是【开始翻译】。
+    $ _livetl_language_rows = livetl_language_rows()
+
+    if _livetl_language_rows:
+        text "tl 目录下已有（点一下选它）：" style "livetl_hint"
+
+        viewport:
+            ymaximum livetl_menu_list_height
+            scrollbars "vertical"
+            mousewheel True
+
+            vbox:
+                spacing 2
+
+                for _livetl_language_row in _livetl_language_rows:
+                    $ _livetl_language_text = _livetl_language_row["text"]
+                    $ _livetl_language_name = _livetl_language_row["language"]
+                    textbutton "[_livetl_language_text]":
+                        style "livetl_menu_item"
+                        action Function(livetl_language_pick, _livetl_language_name)
+    else:
+        text "tl 目录下还没有翻译。" style "livetl_hint"
+
 
 screen livetl_edit_body():
 
@@ -621,6 +660,18 @@ init python:
     # 面板不会出现，不打扰游戏启动。
     if "livetl_panel" not in config.overlay_screens:
         config.overlay_screens.append("livetl_panel")
+
+    def livetl_setup_panel_height():
+        """设置界面的最大高度：整屏减去上下留白，内容多了在面板里滚动。
+
+        设置页里有语言列表、字体列表和各条快捷键，窗口小的时候（720p 及以下）
+        会比一屏还长，被切在屏幕外的按钮就点不到了（实测 720p 下加进语言列表
+        后底部的快捷键行被切掉）。
+        """
+        try:
+            return max(320, int(config.screen_height) - 48)
+        except Exception:
+            return 640
 
     def livetl_sync_input_collapse():
         """游戏自己弹输入框时自动折叠面板，输入完自动恢复。

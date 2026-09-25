@@ -186,8 +186,13 @@ init -90 python:
 
         return rv
 
-    def livetl_engine_tl_path(language, tid):
-        """这条译文应当写进哪个 tl 文件；定位不到时返回 None。"""
+    def livetl_engine_tl_path(language, tid, directory=None):
+        """这条译文应当写进哪个 tl 文件；定位不到时返回 None。
+
+        `directory` 是 tl 下的子目录名，不给就用语言名本身（也就是官方生成器
+        的写法）。语言名与目录名可以不一样：引擎按 `translate <语言> <id>:` 里的
+        名字找译文，文件放在哪个目录里由调用方决定（见 livetl_language.rpy）。
+        """
         node = _livetl_engine_default_node(tid)
 
         if node is None:
@@ -216,7 +221,7 @@ init -90 python:
             return os.path.join(
                 renpy.config.gamedir,
                 renpy.config.tl_directory,
-                language,
+                language if directory is None else directory,
                 fn,
             )
         except Exception as e:
@@ -330,6 +335,240 @@ init -90 python:
             gen.close_tl_files()
 
         return count
+
+    # ---------------------------------------------------------------------
+    # 契约层：语言出现在哪些文件里、还缺哪些条目
+    #
+    # 语言的身份是 `translate <语言> <id>:` 里的名字（引擎按它登记、查找），
+    # 目录名只决定文件放哪儿、资源覆盖、以及 defer_tl_scripts 的加载过滤。
+    # 所以"这个语言在哪几个目录里"只能从译文节点的 filename 反推。
+    # ---------------------------------------------------------------------
+
+    def _livetl_engine_relative_path(filename, gamedir):
+        """译文节点所在文件 → 游戏目录下的相对路径（正斜杠）；认不出来返回 None。
+
+        同一个节点在不同场合的 filename 不一样：盘上的脚本可能是绝对路径，
+        打包进 .rpa 的（以及实测里游戏的 tl 脚本）是加载器给的形式
+        （`game/tl/<语言>/<文件>`）。所以先削掉游戏目录前缀，再统一从
+        tl 那一段开始取。
+        """
+        if not filename:
+            return None
+
+        try:
+            name = str(filename).replace("\\", "/")
+            prefix = str(gamedir or "").replace("\\", "/").rstrip("/")
+
+            if prefix and name.lower().startswith(prefix.lower() + "/"):
+                name = name[len(prefix) + 1:]
+
+            try:
+                target = renpy.config.tl_directory
+            except Exception:
+                target = "tl"
+
+            parts = [part for part in name.split("/") if part]
+
+            for i, part in enumerate(parts):
+                if part == target:
+                    return "/".join(parts[i:])
+
+            return None
+        except Exception:
+            return None
+
+    def livetl_engine_translated_languages():
+        """{语言: [该语言的译文所在文件（游戏目录相对路径）, ...]}。
+
+        来自引擎的翻译表（`translator.language_translates`），所以打包进 .rpa、
+        或者因为 `config.defer_tl_scripts` 还没加载的语言也能看见。拿不到时返回
+        {}，调用方退回扫描 tl 目录。
+        """
+        translator = _livetl_engine_translator()
+
+        if translator is None:
+            return {}
+
+        try:
+            gamedir = renpy.config.gamedir
+        except Exception as e:
+            livetl_engine_note_error("translated_languages/gamedir", e)
+            return {}
+
+        try:
+            items = list(translator.language_translates.items())
+        except Exception as e:
+            livetl_engine_note_error("translated_languages/table", e)
+            return {}
+
+        rv = {}
+
+        for (_identifier, language), node in items:
+            if language is None:
+                # `translate None …` 是默认语言的写法，不是一种可翻译的目标语言
+                continue
+
+            path = _livetl_engine_relative_path(getattr(node, "filename", None), gamedir)
+
+            if path:
+                rv.setdefault(language, set()).add(path)
+
+        return dict((language, sorted(paths)) for language, paths in rv.items())
+
+    def _livetl_engine_generation():
+        """官方生成模块；拿不到返回 None（版本差异都收在这里）。"""
+        try:
+            from renpy.translation import generation
+            return generation
+        except Exception as e:
+            livetl_engine_note_error("generation", e)
+            return None
+
+    def _livetl_engine_is_empty_extend(node):
+        """这个节点是不是只有 `extend ""`（官方生成器会跳过它）。"""
+        generation = _livetl_engine_generation()
+
+        if generation is None:
+            return False
+
+        try:
+            return bool(generation.is_empty_extend(node))
+        except Exception as e:
+            livetl_engine_note_error("is_empty_extend", e)
+            return False
+
+    def _livetl_engine_wanted_translates(language):
+        """这个语言还没有译文的原文条目：[(源文件, 标识符, 节点), ...]。
+
+        判断条件与官方生成器逐条对齐（已登记、alternate 已登记、只有 extend ""、
+        config.translate_ignore_who 里的角色都跳过），这样插件自己补空条目时
+        不会比官方多写或少写。
+        """
+        translator = _livetl_engine_translator()
+
+        if translator is None:
+            return []
+
+        try:
+            registered = translator.language_translates
+            file_translates = translator.file_translates
+            ignore_who = renpy.config.translate_ignore_who
+        except Exception as e:
+            livetl_engine_note_error("wanted_translates/setup", e)
+            return []
+
+        say = _livetl_engine_ast_class("TranslateSay")
+        rv = []
+
+        for filename, items in file_translates.items():
+            for _label, node in items:
+                try:
+                    identifier = node.identifier
+                except Exception:
+                    continue
+
+                if (identifier, language) in registered:
+                    continue
+
+                alternate = getattr(node, "alternate", None)
+
+                if (alternate is not None) and ((alternate, language) in registered):
+                    continue
+
+                if _livetl_engine_is_empty_extend(node):
+                    continue
+
+                if (say is not None) and isinstance(node, say):
+                    who = getattr(node, "who", None)
+
+                    if who and (str(who) in ignore_who):
+                        continue
+
+                rv.append((filename, identifier, node))
+
+        return rv
+
+    def livetl_engine_missing_translates(language):
+        """这个语言还缺译文的标识符（去重、按源文件顺序）；拿不到返回 []。"""
+        rv = []
+        seen = set()
+
+        for _filename, identifier, _node in _livetl_engine_wanted_translates(language):
+            if identifier in seen:
+                continue
+
+            seen.add(identifier)
+            rv.append(identifier)
+
+        return rv
+
+    def livetl_engine_translation_file(language, tid):
+        """引擎为 (语言, 标识符) 登记的那条译文在哪个文件里（游戏目录相对路径）。
+
+        同一个标识符在多个 tl 文件里都有该语言的块时，引擎后加载的那份覆盖
+        先加载的（登记就是一次字典赋值），所以这里返回的就是"画面上生效的那
+        一份"在哪个文件 —— 插件读写都按它走，探针用它钉住这条语义。
+        拿不到时返回 None。
+        """
+        translator = _livetl_engine_translator()
+
+        if translator is None:
+            return None
+
+        try:
+            key = str(tid or "").replace(".", "_")
+            node = translator.language_translates.get((key, language))
+        except Exception as e:
+            livetl_engine_note_error("translation_file", e)
+            return None
+
+        if node is None:
+            return None
+
+        try:
+            gamedir = renpy.config.gamedir
+        except Exception as e:
+            livetl_engine_note_error("translation_file/gamedir", e)
+            return None
+
+        return _livetl_engine_relative_path(getattr(node, "filename", None), gamedir)
+
+    def livetl_engine_missing_strings(language):
+        """这个语言还缺的界面字符串（原文，去重）；拿不到返回 []。
+
+        与官方 write_strings() 同一套判断：已经登记的跳过、没有归属文件的跳过。
+        """
+        generation = _livetl_engine_generation()
+        translations = _livetl_engine_string_table(language)
+
+        if (generation is None) or (translations is None):
+            return []
+
+        try:
+            from renpy.translation import scanstrings
+            strings = scanstrings.scan(0, 299, False)
+        except Exception as e:
+            livetl_engine_note_error("missing_strings/scan", e)
+            return []
+
+        rv = []
+        seen = set()
+
+        for s in strings:
+            if (s.text in translations) or (s.text in seen):
+                continue
+
+            try:
+                if generation.translation_filename(s) is None:
+                    continue
+            except Exception as e:
+                livetl_engine_note_error("missing_strings/filename", e)
+                continue
+
+            seen.add(s.text)
+            rv.append(s.text)
+
+        return rv
 
     def livetl_engine_string_file_map():
         """界面字符串 → 官方归属文件（Launcher 生成翻译时会写进的那个文件）。

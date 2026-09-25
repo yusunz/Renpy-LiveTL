@@ -64,22 +64,18 @@ init -20 python:
 
         `path` 是给测试用的口子（改配置那一步），正常调用不用传。
         """
-        # 输入框留空就退回配置里的缺省语言；两处都不合法时不往下走
-        language = livetl_normalize_language(store.livetl_language_input or livetl_language)
+        # 输入框留空就退回配置里的缺省语言，再解析成 (语言名, 目录, 说明)：
+        # 语言名以 translate 语句里的为准，目录是译文实际所在的那个 tl 子目录
+        language, directory, note = livetl_resolve_language(
+            livetl_normalize_language(store.livetl_language_input or livetl_language),
+        )
 
-        # 磁盘上已经有这个语言（可能只是大小写不同）时以磁盘上的写法为准：
-        # 否则会把 translate <小写名> 混进别人已经翻好的文件里
-        language, note = livetl_resolve_language(language)
-
-        if not language:
-            livetl_set_status(livetl_language_hint())
-            livetl_log("confirm_language rejected: {!r}".format(store.livetl_language_input))
-            return
-
-        if not livetl_language_valid(language):
-            # 解析后落到引擎保留名（磁盘上有 tl/None）也算不合法
-            livetl_set_status(livetl_language_hint())
-            livetl_log("confirm_language rejected after resolve: {!r}".format(language))
+        if not directory:
+            # 解析不了：名字不合法、是引擎保留名、或者磁盘上有大小写歧义
+            livetl_set_status(note or livetl_language_hint())
+            livetl_log("confirm_language rejected: {!r} ({})".format(
+                store.livetl_language_input, note,
+            ))
             return
 
         livetl_set_language(language)
@@ -113,7 +109,7 @@ init -20 python:
         except Exception as e:
             # 生成失败不能把整个界面掀掉：报错留在状态栏，译者能看懂发生了什么
             livetl_log("setup: 生成失败 {!r}".format(e))
-            livetl_set_status("生成 tl/{}/ 失败：{}".format(language, e))
+            livetl_set_status("生成 tl/{}/ 失败：{}".format(directory, e))
             return
 
         livetl_mark_templates_done(language)
@@ -129,11 +125,13 @@ init -20 python:
         suffix = "（{}）".format("；".join(notes)) if notes else ""
 
         if added > 0:
-            livetl_set_status("tl/{}/ 已补全：新增 {} 条，按【重载】生效{}".format(language, added, suffix))
+            livetl_set_status("tl/{}/ 已补全：新增 {} 条，按【重载】生效{}".format(directory, added, suffix))
         else:
-            livetl_set_status("tl/{}/ 已是最新，没有要补的条目{}".format(language, suffix))
+            livetl_set_status("tl/{}/ 已是最新，没有要补的条目{}".format(directory, suffix))
 
-        livetl_log("setup: incremental generate for {!r} ({} files, {} new)".format(language, count, added))
+        livetl_log("setup: incremental generate for {!r} (tl/{}/, {} files, {} new)".format(
+            language, directory, count, added,
+        ))
 
     def livetl_open_setup():
         """回到语言设置界面。

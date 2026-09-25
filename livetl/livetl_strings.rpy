@@ -69,28 +69,27 @@ init -50 python:
     # ---------------------------------------------------------------------
 
     def livetl_tl_language_dir(language=None):
-        """目标语言的 tl 目录；引擎拿不到目录时返回 ""。"""
+        """这个语言的生效目录（绝对路径）；拿不到时返回 ""。
+
+        语言名与目录名可以不一样（实测有游戏把 translate chinese 放在
+        tl/out/ 里），所以这里问的是"译文实际在哪个 tl 子目录里"，
+        不是简单的 tl/<语言名>。
+        """
         if language is None:
             language = livetl_target_language()
 
-        return livetl_engine_tl_root(language)
+        return livetl_language_path(livetl_language_dir_of(language) or language)
 
     def livetl_iter_tl_files(language=None):
-        """列出该语言 tl 目录下的翻译文件（.rpy / .rpym，跳过备份目录）。"""
-        root = livetl_tl_language_dir(language)
-        rv = []
+        """列出这个语言涉及的翻译文件（.rpy / .rpym，按加载顺序）。
 
-        if not os.path.isdir(root):
-            return rv
+        同一语言散在多个目录里时全部列出；目录名与语言名不一致的游戏就靠
+        这份清单（见 livetl_language_files）。
+        """
+        if language is None:
+            language = livetl_target_language()
 
-        for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = sorted([d for d in dirnames if not d.startswith(_livetl_backup_prefix)])
-
-            for name in sorted(filenames):
-                if name.endswith(".rpy") or name.endswith(".rpym"):
-                    rv.append(os.path.join(dirpath, name))
-
-        return rv
+        return livetl_language_files(language)
 
     def livetl_string_file_rank(relpath):
         """重复条目清理时决定保留谁：数字越小越先保留。"""
@@ -231,7 +230,8 @@ init -50 python:
         if (not force) and cached and (cached[0] == language) and (cached[1] == stamp):
             return cached[2]
 
-        root = livetl_tl_language_dir(language)
+        # rel 相对 tl 根（含目录），因为同一条目可能落在别的目录里
+        root = livetl_engine_tl_root()
         index = {}
 
         for path in files:
@@ -317,25 +317,27 @@ init -50 python:
           1. 先做跨文件全量查重：这条 old 已经存在就改它的 new；
           2. 不存在才按官方归属文件新增一条。
 
-        返回写入的相对文件名；失败返回 None。
+        返回写入的文件（相对 tl 根，含目录）；失败返回 None。
         """
         language = livetl_target_language()
+        directory = livetl_language_dir_of(language) or language
 
         index = livetl_scan_string_index(language, force=True)
         existing = index.get(key)
 
         if existing:
+            # 已经在某个文件里：就地改它（其它目录里的同一条也会被查重看到）
             rel = livetl_best_string_entry(key, existing)[0]
         else:
-            rel = livetl_string_file_for(key)
+            rel = "{}/{}".format(directory, livetl_string_file_for(key))
 
-        root = livetl_tl_language_dir(language)
+        root = livetl_engine_tl_root()
 
         if not root:
             livetl_log("write string: 拿不到 tl 目录，放弃写入")
             return None
 
-        path = os.path.join(root, rel)
+        path = os.path.join(root, rel.replace("/", os.sep))
 
         dirname = os.path.dirname(path)
         if dirname and not os.path.isdir(dirname):
@@ -419,7 +421,7 @@ init -50 python:
             livetl_log("write string: 写入失败 {!r}: {!r}".format(rel, e))
             return None
 
-        livetl_invalidate_string_index()
+        livetl_invalidate_tl_indexes()
         livetl_log("write string entry: {!r} -> {} ({!r})".format(key, rel, text))
         return rel
 
@@ -443,13 +445,13 @@ init -50 python:
             return None
 
         rel, lineno, _new = livetl_best_string_entry(key, places)
-        root = livetl_tl_language_dir(language)
+        root = livetl_engine_tl_root()
 
         if not root:
             livetl_log("delete string: 拿不到 tl 目录，放弃删除")
             return None
 
-        path = os.path.join(root, rel)
+        path = os.path.join(root, rel.replace("/", os.sep))
 
         try:
             with open(path, encoding="utf-8-sig") as f:
@@ -500,7 +502,7 @@ init -50 python:
             livetl_log("delete string: 写入失败 {}: {!r}".format(rel, e))
             return None
 
-        livetl_invalidate_string_index()
+        livetl_invalidate_tl_indexes()
         livetl_drop_empty_string_blocks(language)
         livetl_log("delete string entry: {!r} from {}".format(key, rel))
         return rel
@@ -511,28 +513,35 @@ init -50 python:
         return dict((k, v) for k, v in index.items() if len(v) > 1)
 
     def livetl_backup_language_dir(language):
-        """把整个 tl/<语言>/ 备份出来，返回备份目录（失败返回 None）。"""
+        """把这个语言涉及的 tl 目录整体备份出来，返回备份目录（失败返回 None）。
+
+        语言散在多个目录里时每个目录各留一份，备份目录里按原目录名分层
+        （livetl_backup/<语言>_<时间>/<目录>/…）。
+        """
         import shutil
         import time
 
-        root = livetl_tl_language_dir(language)
-
-        if not os.path.isdir(root):
-            return None
-
+        dirs = livetl_language_dirs_of(language) or [language]
         backup = os.path.join(
             renpy.config.gamedir,
             _livetl_backup_dir,
             "{}_{}".format(language, time.strftime("%Y%m%d_%H%M%S")),
         )
+        made = 0
 
-        try:
-            shutil.copytree(root, backup)
-        except Exception as e:
-            livetl_log("backup failed: {!r}".format(e))
-            return None
+        for directory in dirs:
+            source = livetl_language_path(directory)
 
-        return backup
+            if not os.path.isdir(source):
+                continue
+
+            try:
+                shutil.copytree(source, os.path.join(backup, directory))
+                made += 1
+            except Exception as e:
+                livetl_log("backup failed ({}): {!r}".format(directory, e))
+
+        return backup if made else None
 
     def livetl_clean_duplicate_strings(language=None, make_backup=True):
         """清理重复条目：每个 old 只保留一条。
@@ -565,10 +574,10 @@ init -50 python:
                 drop.setdefault(rel, set()).add(lineno)
 
         removed = 0
-        root = livetl_tl_language_dir(language)
+        root = livetl_engine_tl_root()
 
         for rel, linenos in drop.items():
-            path = os.path.join(root, rel)
+            path = os.path.join(root, rel.replace("/", os.sep))
 
             try:
                 with open(path, encoding="utf-8-sig") as f:
@@ -620,7 +629,7 @@ init -50 python:
                 livetl_log("dup clean: 写入失败 {}: {!r}".format(rel, e))
                 continue
 
-        livetl_invalidate_string_index()
+        livetl_invalidate_tl_indexes()
         livetl_drop_empty_string_blocks(language)
         livetl_log("dup clean: {} 条，备份 {!r}".format(removed, backup))
         return (removed, backup)
