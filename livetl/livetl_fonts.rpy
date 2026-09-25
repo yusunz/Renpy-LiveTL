@@ -29,35 +29,70 @@ init -50 python:
 
     livetl_engine_file_drop_type()
 
-    # 匹配脚本里出现的字体文件名，例如 "fonts/xxx.ttf"
-    _livetl_font_pattern = re.compile(r'["\']([^"\']+\.(?:ttf|otf|ttc))["\']', re.IGNORECASE)
+    # 匹配脚本里出现的字体文件名。两种写法都要认：
+    #   * 带引号的资源名：`"fonts/xxx.ttf"`（引号里允许空格，例如 "My Font.ttf"）
+    #   * 文本标签里的写法：`{font=xxx.ttf}` —— 没有引号。实测不少游戏这样用
+    #     （例如把某句台词写成 `{font=jempolfreak.ttf}...`），汉化后那句中文会因为
+    #     这个字体没有中文字形变成方块，所以它必须进替换表。
+    #     标签里的 `{font=` 与 `}` 都不是路径字符，按"路径字符 + 扩展名"就能认出来。
+    # 带扩展名的系统字体 / register_font 家族名认不出来，那种只能靠译者换字体时
+    # 看到的实际效果判断（表是按字体文件名建的）。
+    _livetl_font_pattern = re.compile(
+        r'["\']([^"\'\n]+\.(?:ttf|otf|ttc))["\']'
+        r'|([A-Za-z0-9_\-./\\]+\.(?:ttf|otf|ttc))',
+        re.IGNORECASE,
+    )
 
     def livetl_collect_fonts():
-        """收集会用到的字体文件名：游戏源码 + 目标语言的 tl 脚本。
+        """收集会用到的字体文件名：游戏源码 + game/tl 下的全部脚本。
 
         扫描出现过的 *.ttf / *.otf / *.ttc 字符串，和原项目里 extract_fonts.py
         的思路一致。
 
-        tl 脚本必须一起扫：译文脚本里会设自己的字体（常见写法是在
-        `translate <语言> python:` 块里改 gui.text_font，或 tl/<语言>/gui.rpy），
-        切换语言之后那套字体就会被应用 —— 不把它们纳进来，译者选的字体只覆盖
-        一半文本（实测：设置页切到某个语言后，译文里的字体又变回游戏原字体）。
+        范围必须是"游戏源码 + **所有** tl 脚本"，不能只看游戏源码、也不能只看
+        目标语言：译文脚本会给自己设字体（实测某游戏的中文翻译在
+        tl/chinese/style.rpy 里把 gui.text_font / gui.name_text_font / 界面的
+        gui.button_text_font … 整套换成了 tl/chinese/ 下的字体，tl/chinese/ 的
+        screens.rpy 里还有 `{font=…}` 文本标签），而游戏切到哪个语言就会应用
+        那个语言的脚本 —— 只扫一部分，译者选的字体就只覆盖一半文本（0.4.1 只扫
+        目标语言，于是"目标语言和游戏实际在用的语言不是同一个"时就表现为
+        "字体全局替换失效"）。
 
-        只扫目标语言的 tl 脚本（它涉及的每个目录都扫）：别的语言是游戏自己的
-        事，不该被顺手改掉字体；想换语言就换设置页里的目标语言。
+        每个文件的扫描结果按 (路径, mtime, 大小) 缓存，换字体时会重扫，
+        但不会重复读没变过的文件。
         """
         files = list(livetl_engine_translate_files())
-        files.extend(livetl_language_files(livetl_target_language()))
+        files.extend(livetl_tl_files())
 
+        cache = livetl_state_get("livetl_font_scan", {})
+        new_cache = {}
         fonts = set()
 
         for filename in files:
             try:
-                with open(filename, "r", encoding="utf-8", errors="ignore") as f:
-                    for m in _livetl_font_pattern.finditer(f.read()):
-                        fonts.add(m.group(1))
+                st = os.stat(filename)
+                key = (filename, int(st.st_mtime), st.st_size)
             except Exception:
-                pass
+                key = (filename, None, None)
+
+            found = cache.get(key)
+
+            if found is None:
+                found = set()
+
+                try:
+                    with open(filename, "r", encoding="utf-8", errors="ignore") as f:
+                        for m in _livetl_font_pattern.finditer(f.read()):
+                            found.add(m.group(1) or m.group(2))
+                except Exception:
+                    pass
+
+                found = tuple(sorted(found))
+
+            new_cache[key] = found
+            fonts.update(found)
+
+        livetl_state_set("livetl_font_scan", new_cache)
 
         return sorted(fonts)
 

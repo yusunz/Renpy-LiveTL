@@ -245,6 +245,25 @@ init -60 python:
 
         return sorted(rv)
 
+    def livetl_tl_files():
+        """game/tl/ 下的全部翻译脚本（.rpy/.rpym，按加载顺序）。
+
+        给"要看文件内容"的扫描用：译文脚本里会设自己的字体、样式，游戏切到哪个
+        语言就会应用那个语言的脚本 —— 实测有游戏的中文翻译在 tl/chinese/style.rpy
+        里把 gui.text_font 之类整套换成了 tl/chinese/ 下的字体。所以要某个语言的
+        文件用 livetl_language_files()，要"所有可能生效的"就用这个。
+        """
+        root = livetl_engine_tl_root()
+        rv = []
+
+        if not root:
+            return rv
+
+        for directory in livetl_tl_dirs():
+            rv.extend(_livetl_tl_files_in(os.path.join(root, directory)))
+
+        return sorted(rv)
+
     # ---------------------------------------------------------------------
     # 解析：译者填的名字 → (语言名, 目录, 说明)
     # ---------------------------------------------------------------------
