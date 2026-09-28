@@ -199,10 +199,11 @@ init python:
 
         return text
 
-
-default livetl_value = LiveTLInputValue("livetl_input")
-default livetl_font_panel_open = False
-default livetl_font_choices = []
+    # 面板的临时状态：普通赋值，不用 default（原因见 livetl_setup.rpy 里的说明；
+    # 这几项本来也不需要"存档 + 回退"）。
+    livetl_value = LiveTLInputValue("livetl_input")
+    livetl_font_panel_open = False
+    livetl_font_choices = []
 
 
 init 10 python:

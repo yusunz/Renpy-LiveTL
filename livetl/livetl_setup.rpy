@@ -17,11 +17,15 @@ init python:
             livetl_confirm_language()
             return None
 
-
-# 设置界面里预填的语言：优先用 0.2.9 以前记在 persistent 里的那份
-# （旧记录只在预填时用，点【开始翻译】会重新落到配置里），其次配置里的值
-default livetl_language_input = persistent.livetl_language or livetl_language
-default livetl_language_value = LiveTLLanguageValue("livetl_language_input")
+    # 设置界面里预填的语言：优先用 0.2.9 以前记在 persistent 里的那份
+    # （旧记录只在预填时用，点【开始翻译】会重新落到配置里），其次配置里的值。
+    #
+    # 用普通赋值，不用 default：这两个（和面板那三个同类的）只是设置界面的临时
+    # 状态，不需要"存档 + 回退"语义；而 default 在开发者模式下的热重载里会撞
+    # "is being given a default a second time"（边跑边换插件文件时最容易遇到）。
+    # persistent 在 init 阶段就能读（实测过），所以初值照旧。
+    livetl_language_input = persistent.livetl_language or livetl_language
+    livetl_language_value = LiveTLLanguageValue("livetl_language_input")
 
 
 init -20 python:
