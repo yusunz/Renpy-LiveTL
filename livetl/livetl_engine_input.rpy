@@ -1,7 +1,9 @@
 # =============================================================================
-# LiveTL —— 引擎隔离层：面板输入框（鼠标定位光标、拖拽选区、撤销 / 重做）
+# LiveTL —— 引擎隔离层：面板输入框与原文只读控件
 #
-# 这个文件是"输入框"这一组能力的适配层，规则与 livetl_engine.rpy 相同：
+# 这个文件是"面板里的可选中文字"这一组能力的适配层：译文输入框（鼠标定位
+# 光标、拖拽选区、撤销 / 重做）与原文行的只读控件（只能选、不能改）。
+# 规则与 livetl_engine.rpy 相同：
 #   * 未文档化的引擎接口只能出现在三个适配层文件里：livetl_engine.rpy、
 #     本文件、livetl_state.rpy；其它文件只调用 livetl_engine_* 函数。
 #   * 每个函数遇到问题返回空值（None / [] / {}），原因记进
@@ -32,8 +34,9 @@ init -90 python:
     # 界面时除以 oversample、加排版偏移。
     # 依赖的内部结构：layout.oversample / xoffset / yoffset，
     # layout.lines[*].y / height / glyphs[*].x / advance / character。
-    # 这些在 8.1.1 与 8.5.3 上一致，其中"一个字形对应一个字符"这条假设由
-    # livetl_engine_input_probe() 每次运行自检一遍。
+    # 这些在 8.1.1 与 8.5.3 上一致，其中"排版里的字形是内容的一个子序列"
+    # （折行处被丢掉的空白占不到格子，见 _livetl_engine_input_marks）这条假设
+    # 由 livetl_engine_input_probe() 每次运行自检一遍。
     #
     # 算不出来时（译文里有图片、表情文字这类"不是字的元素"）返回 None / []，
     # 调用方只挡住这一次点击、不动光标，原因记进 livetl_engine_note_error()。
@@ -50,6 +53,11 @@ init -90 python:
         ",.;:!?()[]{}<>\"'`~#$%^&*|\\/+=@"
     )
 
+    # 折行时排版可能不给字形的字符：行尾空白（实测 8.1.1 / 8.5.3：
+    # 换行处那个空格没有 glyph，字形数比内容少一个）。只有这些字符允许
+    # 在配对时被跳过，别的对不上就当作"认不出"，免得点歪。
+    _livetl_engine_input_ghost_chars = " \t\r\n\u3000"
+
     def _livetl_engine_input_is_sep(ch):
         """这个字符算不算"词"的分界（双击选词用）。"""
         return ch in _livetl_engine_input_separators
@@ -63,6 +71,69 @@ init -90 python:
             livetl_engine_note_error("input/color", e)
             return (255, 204, 102, 96)
 
+    def _livetl_engine_input_mouse_down(ev):
+        """这个事件是不是鼠标左键按下（归属切换靠它）。"""
+        try:
+            import pygame
+        except Exception:
+            return False
+
+        return (ev.type == pygame.MOUSEBUTTONDOWN) and (getattr(ev, "button", 0) == 1)
+
+    # 修饰键本身：按 Ctrl / Shift / Alt / Win 不该算"译文框收了一个键" ——
+    # 按住 Ctrl 再按 C 复制原文时，Ctrl 那一下会先到（实测：不排除它，
+    # 提示条会在按下 Ctrl 的瞬间消失，选区一起被收起，C 就复制不到了）。
+    # 名字在不同版本 / 平台上不止一个，按名字比对，缺的跳过。
+    _livetl_engine_input_modifier_names = (
+        "K_LCTRL", "K_RCTRL", "K_LSHIFT", "K_RSHIFT", "K_LALT", "K_RALT",
+        "K_LGUI", "K_RGUI", "K_LSUPER", "K_RSUPER", "K_LMETA", "K_RMETA",
+        "K_CAPSLOCK", "K_NUMLOCK", "K_SCROLLOCK", "K_SCROLLLOCK",
+    )
+
+    _livetl_engine_input_modifier_keys = None
+
+    def _livetl_engine_input_is_modifier_key(ev):
+        """这一下是不是"只按了修饰键本身"（Ctrl / Shift / Alt / Win / Caps）。"""
+        global _livetl_engine_input_modifier_keys
+
+        key = getattr(ev, "key", None)
+
+        if key is None:
+            return False
+
+        if _livetl_engine_input_modifier_keys is None:
+            try:
+                import pygame
+            except Exception:
+                _livetl_engine_input_modifier_keys = frozenset()
+            else:
+                _livetl_engine_input_modifier_keys = frozenset(
+                    getattr(pygame, name)
+                    for name in _livetl_engine_input_modifier_names
+                    if hasattr(pygame, name)
+                )
+
+        return key in _livetl_engine_input_modifier_keys
+
+    def _livetl_engine_input_text_event(ev):
+        """这个事件是不是"在收字 / 改字"（按键、输入法上屏）。
+
+        归属判定用：译文框一收到这类事件，Ctrl+A / Ctrl+C 就归译文。
+        只按下修饰键本身不算（见 _livetl_engine_input_is_modifier_key）。
+        """
+        try:
+            import pygame
+        except Exception:
+            return False
+
+        if ev.type not in (pygame.KEYDOWN, pygame.TEXTINPUT, pygame.TEXTEDITING):
+            return False
+
+        if (ev.type == pygame.KEYDOWN) and _livetl_engine_input_is_modifier_key(ev):
+            return False
+
+        return True
+
     def _livetl_engine_input_marks(widget):
         """把排版里的字逐个标上"第几个字符"。
 
@@ -70,8 +141,12 @@ init -90 python:
         一个 displayable，在排版里记成 U+FFFC，这里用 None 表示（它不对应
         任何字符，画选区时单独照顾）。
 
-        字形总数与内容长度对不上时返回 None：说明译文里有排版认不出成
-        "一个字"的东西（图片、表情文字），这时宁可不认，也不要点歪。
+        排版里的字形是内容的**子序列**，不是一一对应：折行处被排版丢掉的
+        空白没有字形，但它仍然占一个内容下标 —— 借用前面那个字形的位置，
+        否则它后面的字会整体偏一位。只有空白允许这样跳（见上面 ghost 集合）。
+
+        贪心配对对不上时返回 None：说明内容里有排版认不出成"一个字"的东西
+        （图片、表情文字），这时宁可不认，也不要点歪。
         """
         try:
             layout = widget.get_layout()
@@ -83,33 +158,83 @@ init -90 python:
         if layout is None:
             return None
 
-        marks = []
+        # 先按内容顺序配对：[(内容下标, 行, 字形), ...]，光标的 None 也在里面
+        pairs = []
         index = 0
+        last = None
 
         for line in (getattr(layout, "lines", None) or []):
-            items = []
-
             for glyph in (getattr(line, "glyphs", None) or []):
                 if getattr(glyph, "time", 0) == -1:
                     # 慢速打字（typewriter）还没显示出来的字：不算数
                     continue
 
                 if getattr(glyph, "character", 0) == _livetl_engine_input_object:
-                    items.append((None, glyph))
+                    pairs.append((None, line, glyph))
                     continue
 
-                items.append((index, glyph))
+                try:
+                    ch = chr(getattr(glyph, "character", 0))
+                except Exception:
+                    ch = ""
+
+                if not ch:
+                    livetl_engine_note_error("input/marks", "bad character")
+                    return None
+
+                while (index < len(content)) and (content[index] != ch):
+                    # 中间这些字排版没给字形：只允许行尾空白，且必须挂在
+                    # 前一个字的位置上（它本来就没有可见宽度）
+                    if (content[index] not in _livetl_engine_input_ghost_chars) or (last is None):
+                        livetl_engine_note_error(
+                            "input/marks",
+                            "miss {!r} before {!r} at {}".format(content[index], ch, index),
+                        )
+                        return None
+
+                    pairs.append((index, last[0], last[1]))
+                    index += 1
+
+                if index >= len(content):
+                    livetl_engine_note_error(
+                        "input/marks",
+                        "glyphs more than chars={}".format(len(content)),
+                    )
+                    return None
+
+                pairs.append((index, line, glyph))
+                last = (line, glyph)
                 index += 1
 
-            if items:
-                marks.append((line, items))
+        while index < len(content):
+            # 内容结尾的空白一样可能没有字形
+            if (last is None) or (content[index] not in _livetl_engine_input_ghost_chars):
+                livetl_engine_note_error(
+                    "input/marks",
+                    "tail {!r} at {}".format(content[index], index),
+                )
+                return None
 
-        if index != len(content):
-            livetl_engine_note_error(
-                "input/marks",
-                "glyphs={} chars={}".format(index, len(content)),
-            )
-            return None
+            pairs.append((index, last[0], last[1]))
+            index += 1
+
+        # 再按行分组（配对是按内容顺序来的，行序不会乱）
+        marks = []
+        current_line = None
+        items = []
+
+        for item_index, line, glyph in pairs:
+            if line is not current_line:
+                if items:
+                    marks.append((current_line, items))
+
+                current_line = line
+                items = []
+
+            items.append((item_index, glyph))
+
+        if items:
+            marks.append((current_line, items))
 
         return marks
 
@@ -279,6 +404,14 @@ init -90 python:
         # 让路判定：由快捷键那一层给的可调用对象，收到事件后返回真表示
         # "这一下绑成了快捷键"。None = 没有快捷键功能（照官方 Input 处理）。
         hotkey_filter = None
+
+        # 只读模式：只有原文行用（见 LiveTLSourceText）。True 时事件走
+        # "能选、能复制、不能改"那一条分支。
+        livetl_readonly = False
+
+        # 文字左侧的留白（虚拟像素）：只读原文行用它放归属提示条，译文框是 0。
+        # 排版宽度、选区方块与鼠标坐标都按它偏移。
+        livetl_content_offset = 0
 
         def __init__(self, select_color=None, hotkey_filter=None, **kwargs):
             renpy.display.behavior.Input.__init__(self, **kwargs)
@@ -595,7 +728,9 @@ init -90 python:
                     self.livetl_clear_selection()
                     return False
 
-                index = livetl_engine_input_index_at(self, x, y)
+                index = livetl_engine_input_index_at(
+                    self, x - self.livetl_content_offset, y,
+                )
 
                 if index is None:
                     # 排版里认不出第几个字：只挡住点击，不动光标
@@ -627,7 +762,9 @@ init -90 python:
                 if self.drag_anchor is None:
                     return False
 
-                index = livetl_engine_input_index_at(self, x, y)
+                index = livetl_engine_input_index_at(
+                    self, x - self.livetl_content_offset, y,
+                )
 
                 if index is None:
                     return True
@@ -765,7 +902,13 @@ init -90 python:
             )
 
         def render(self, width, height, st, at):
-            rv = renpy.display.behavior.Input.render(self, width, height, st, at)
+            # 左侧留白（只读原文行用来放归属提示条）：文字整体右移，排版宽度
+            # 相应变窄；译文框的偏移是 0，走的还是原来那条路。
+            offset = max(0, int(self.livetl_content_offset or 0))
+
+            rv = renpy.display.behavior.Input.render(
+                self, max(0, width - offset), height, st, at,
+            )
 
             # 记住自己占的那一行（宽用父容器给的宽度：面板里整行都能点）
             self.row_size = (width, rv.height)
@@ -774,20 +917,32 @@ init -90 python:
                 self, self.sel_start, self.sel_end,
             )
 
-            if not rects:
+            bar = self._livetl_focus_bar()
+
+            if (not rects) and (bar is None) and (not offset):
                 return rv
 
-            # 底色垫在文字下面：先画几块纯色，再把文字叠上去
-            out = renpy.display.render.Render(rv.width, rv.height)
+            out = renpy.display.render.Render(rv.width + offset, rv.height)
 
+            # 底色垫在文字下面：先画几块纯色，再把文字叠上去
             for rect_x, rect_y, rect_w, rect_h in rects:
                 patch = renpy.display.render.Render(rect_w, rect_h)
                 patch.fill(self.select_rgba)
-                out.blit(patch, (rect_x, rect_y))
+                out.blit(patch, (rect_x + offset, rect_y))
 
-            out.blit(rv, (0, 0))
+            if bar is not None:
+                bar_width, bar_rgba = bar
+                patch = renpy.display.render.Render(bar_width, rv.height)
+                patch.fill(bar_rgba)
+                out.blit(patch, (0, 0))
+
+            out.blit(rv, (offset, 0))
 
             return out
+
+        def _livetl_focus_bar(self):
+            """左侧的归属提示条：(宽, 颜色)；基类（译文框）不画，返回 None。"""
+            return None
 
         def event(self, ev, x, y, st):
             # 记住这一次事件开始前的状态：撤销要的是"改动前"的那一份
@@ -807,6 +962,16 @@ init -90 python:
                     raise renpy.display.core.IgnoreEvent()
 
                 if self.editable:
+                    # 归属在原文行时，Ctrl+A / Ctrl+C 让给原文控件：这里不消费，
+                    # 事件继续往后传，最终落到渲染树里更靠前的那个控件手里。
+                    if self._livetl_yield_to_source(ev):
+                        return None
+
+                    # 译文框一收到按键或鼠标按下，这两个键就归译文（自愈规则：
+                    # 归属只在"点了原文、还没动译文"这段时间里保持）
+                    if _livetl_engine_input_text_event(ev) or _livetl_engine_input_mouse_down(ev):
+                        _livetl_engine_input_source_focus_set(False)
+
                     # Ctrl+Z / Ctrl+Y：撤销、重做（真的动了历史才吃掉这个键）
                     if self._livetl_history_key(ev):
                         raise renpy.display.core.IgnoreEvent()
@@ -822,6 +987,24 @@ init -90 python:
                     # 选区存在时，编辑类按键先按"选中再打字"的规矩处理
                     self._livetl_edit_selection(ev)
 
+                elif self.livetl_readonly:
+                    # 只读原文行：只接 Ctrl+A（全选）与 Ctrl+C（复制选区；
+                    # 没有选区就什么都不做，但这一下仍然吃掉，别漏给游戏的
+                    # 快捷键），其余按键一律放行 —— 打字永远进译文框。
+                    if self._livetl_select_all(ev):
+                        raise renpy.display.core.IgnoreEvent()
+
+                    if renpy.map_event(ev, "input_copy"):
+                        if self._livetl_has_selection():
+                            self._livetl_copy_selection()
+
+                        raise renpy.display.core.IgnoreEvent()
+
+                    if self._livetl_mouse(ev, x, y, st):
+                        raise renpy.display.core.IgnoreEvent()
+
+                    return None
+
                 # 回车是"提交"，处理完别再让游戏把它当成"点击推进对话"
                 enter = (self.value is not None) and renpy.map_event(ev, "input_enter")
                 rv = renpy.display.behavior.Input.event(self, ev, x, y, st)
@@ -834,8 +1017,136 @@ init -90 python:
                 self._livetl_finish_edit(st)
                 self.edit_before = None
 
+        def _livetl_yield_to_source(self, ev):
+            """Ctrl+A / Ctrl+C 现在归原文行时让路：不消费，事件继续往后传。"""
+            if not livetl_engine_input_source_focus():
+                return False
+
+            return (
+                renpy.map_event(ev, "input_copy")
+                or renpy.map_event(ev, "ctrl_noshift_K_a")
+                or renpy.map_event(ev, "meta_noshift_K_a")
+            )
+
     # 面板输入框：同一个输入值只建一个控件（见 LiveTLInput 的说明）
     _livetl_engine_input_widgets = []
+
+    # ---------------------------------------------------------------------
+    # 原文行：只读控件与键盘归属
+    #
+    # 面板上有两个能拿 Ctrl+A / Ctrl+C 的地方：译文输入框与原文只读控件。
+    # Ren'Py 的按键事件按"后加入的先收到"分发，输入框总是先拿到 —— 所以
+    # 这里记一个归属：最后点的是谁，这两个键就归谁（默认归译文，等于没有这
+    # 个功能时的行为）。输入框在让路判定里读它（_livetl_yield_to_source）。
+    #
+    # 状态放 session（跟面板可见性同一层）：游戏回退不该把面板的按键归属倒
+    # 回去，也不该写进 persistent 漏给别的项目。
+    # ---------------------------------------------------------------------
+
+    _livetl_engine_source_focus_key = "livetl_source_focus"
+
+    # 原文只读控件：单实例复用（控件带着选区，重建会把选区丢掉）
+    _livetl_engine_source_widget = None
+
+    def livetl_engine_input_source_focus():
+        """Ctrl+A / Ctrl+C 现在归原文行吗（默认归译文）。"""
+        return bool(livetl_state_get(_livetl_engine_source_focus_key, False))
+
+    def _livetl_engine_input_source_focus_set(value):
+        """切换归属：原文那行的提示条跟着重画，切回译文时收起它的选区。"""
+        value = bool(value)
+
+        if livetl_engine_input_source_focus() == value:
+            return
+
+        livetl_state_set(_livetl_engine_source_focus_key, value)
+
+        widget = _livetl_engine_source_widget
+
+        if widget is None:
+            return
+
+        if not value:
+            widget.livetl_clear_selection()
+
+        renpy.redraw(widget, 0)
+
+    class LiveTLSourceText(LiveTLInput):
+        """原文行的只读控件：能选中、能复制，不能改。
+
+        比译文输入框轻：不接输入法、不进 InputValue 注册表（value=None）、
+        不处理粘贴 / 剪切 / 撤销，只把鼠标那套选择行为拿过来，再加 Ctrl+A
+        与 Ctrl+C 两个键（见 LiveTLInput.event 的只读分支）。左侧留 8px：
+        3px 的归属提示条 + 5px 间隙，文字整体右移，不因归属切换而位移。
+        """
+
+        # 只读模式：事件走 LiveTLInput.event 里的只读分支
+        livetl_readonly = True
+
+        # 左侧留白：3px 提示条 + 5px 间隙
+        livetl_content_offset = 8
+
+        # 提示条宽度
+        _livetl_bar_width = 3
+
+        def __init__(self, **kwargs):
+            kwargs.setdefault("editable", False)
+            kwargs.setdefault("hotkey_filter", None)
+            LiveTLInput.__init__(self, **kwargs)
+
+        def _livetl_focus_bar(self):
+            """归属在原文时画左侧提示条；否则不画。"""
+            if not livetl_engine_input_source_focus():
+                return None
+
+            return (self._livetl_bar_width, self.select_rgba)
+
+        def _livetl_mouse(self, ev, x, y, st):
+            """鼠标左键按下决定归属：落在这一行里 → 归原文；落在别处 → 交回译文。"""
+            if _livetl_engine_input_mouse_down(ev):
+                _livetl_engine_input_source_focus_set(self._livetl_inside(x, y))
+
+            return LiveTLInput._livetl_mouse(self, ev, x, y, st)
+
+    def livetl_engine_input_source_widget(text, select_color=None, **properties):
+        """拿原文行的只读控件（第一次调用时创建，之后复用同一个）。
+
+        `text` 是这一行要显示的原文：调用方给的是"显示形态"
+        （livetl_input_text() 的产物 —— 真换行 / 制表符变成 \\n / \\t，
+        {w}、[name] 这类写法原样），选中复制出去的就是这个形态。
+        内容一变（换台词、切条目）就收起选区、把归属交回译文。
+        建不出来时返回 None，调用方按"没有这一行"处理（add None 是合法的）。
+        """
+        global _livetl_engine_source_widget
+
+        try:
+            text = str(text or "")
+            widget = _livetl_engine_source_widget
+
+            if widget is not None:
+                if widget.content != text:
+                    widget.update_text(text, False)
+                    widget.livetl_clear_selection()
+                    _livetl_engine_input_source_focus_set(False)
+                    renpy.redraw(widget, 0)
+
+                return widget
+
+            widget = LiveTLSourceText(
+                default=text, select_color=select_color, **properties
+            )
+
+            _livetl_engine_source_widget = widget
+
+            # 让运行自检（livetl_engine_input_probe）也看得到它：原文里常常有
+            # { } [ ] 与 \n，而且总是折行，正好把"字形是内容的子序列"这条
+            # 假设压得更狠。
+            _livetl_engine_input_widgets.append((None, widget))
+
+            return widget
+        except Exception as e:
+            livetl_engine_note_error("input/source_widget", e)
+            return None
 
     def livetl_engine_input_text_input_stop():
         """关掉系统文本输入（输入法不再收按键）；成功返回 True。
@@ -902,7 +1213,7 @@ init -90 python:
             livetl_engine_note_error("input/widget", e)
             return None
 
-    # 面板输入框的排版假设自检：只在真的画过一次之后报一次
+    # 面板输入框与原文只读控件的排版假设自检：只在真的画过一次之后报一次
     _livetl_engine_input_probed = False
 
     def _livetl_engine_input_probe_sample(widget):
@@ -933,11 +1244,14 @@ init -90 python:
         return ""
 
     def livetl_engine_input_probe():
-        """面板输入框的排版自检；每次运行只报一次，没画过时先不报。
+        """面板里可选中文字的排版自检；每次运行只报一次，没画过时先不报。
 
-        "一个字形对应一个字符"与"排版坐标 = 虚拟坐标 × oversample"是鼠标
-        定位、拖拽选区都依赖的假设。引擎不报错、行为却变了的那类改动
-        （语义漂移）只能靠这种自检发现，所以它写进 livetl.log。
+        "排版里的字形是内容的一个子序列"（行尾空白可能没有字形，见
+        _livetl_engine_input_marks）与"排版坐标 = 虚拟坐标 × oversample"
+        是鼠标定位、拖拽选区都依赖的假设。引擎不报错、行为却变了的那类改动
+        （语义漂移）只能靠这种自检发现，所以它写进 livetl.log。译文框报
+        input_map，原文行报 source_map（原文里常常有 { } [ ] 与换行，正好把
+        排版假设压得更狠；8.1 跑不了鼠标用例，这条线是那边的证据）。
         """
         global _livetl_engine_input_probed
 
@@ -946,8 +1260,8 @@ init -90 python:
 
         widget = None
 
-        for _value, candidate in _livetl_engine_input_widgets:
-            if candidate.get_layout() is not None:
+        for value, candidate in _livetl_engine_input_widgets:
+            if (value is not None) and (candidate.get_layout() is not None):
                 widget = candidate
                 break
 
@@ -956,6 +1270,17 @@ init -90 python:
 
         _livetl_engine_input_probed = True
 
+        line = "engine seam runtime: " + _livetl_engine_input_probe_field("input", widget)
+
+        source = _livetl_engine_source_widget
+
+        if (source is not None) and (source.get_layout() is not None):
+            line += " " + _livetl_engine_input_probe_field("source", source)
+
+        return [line]
+
+    def _livetl_engine_input_probe_field(name, widget):
+        """一个控件的自检结果：`<name>_map=ok chars=… lines=… oversample=…`。"""
         try:
             reason = _livetl_engine_input_probe_sample(widget)
         except Exception as e:
@@ -963,17 +1288,15 @@ init -90 python:
             reason = repr(e)
 
         if reason:
-            return [
-                "engine seam runtime: input_map=no（{}：鼠标定位退回只挡点击，"
-                "详见上一行 seam 错误）".format(reason),
-            ]
+            return "{}=no（{}：鼠标定位退回只挡点击，详见上一行 seam 错误）".format(
+                name + "_map", reason,
+            )
 
         layout = widget.get_layout()
 
-        return [
-            "engine seam runtime: input_map=ok chars={} lines={} oversample={}".format(
-                len(widget.content or ""),
-                len(getattr(layout, "lines", None) or []),
-                _livetl_engine_input_scale(layout),
-            ),
-        ]
+        return "{}_map=ok chars={} lines={} oversample={}".format(
+            name,
+            len(widget.content or ""),
+            len(getattr(layout, "lines", None) or []),
+            _livetl_engine_input_scale(layout),
+        )

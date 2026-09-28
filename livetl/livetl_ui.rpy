@@ -450,13 +450,23 @@ screen livetl_language_list():
 
 screen livetl_edit_body():
 
+    # 原文行是只读控件：拖选、双击选词、三击全选、Ctrl+A 全选、Ctrl+C
+    # 复制选中片段（没选中时不复制）。内容取"显示形态"——面板上看到什么
+    # 就复制什么（见 livetl_input_text()）。
     # 插值里不做函数调用，先算好再显示（兼容 8.1）
-    $ _source_display = livetl_escape(livetl_current_source)
+    $ _source_display = livetl_input_text(livetl_current_source)
+    $ _livetl_source_widget = livetl_engine_input_source_widget(
+          _source_display, style="livetl_source")
 
-    if livetl_current_kind == "string":
-        text "条目: [_source_display]" style "livetl_source"
-    else:
-        text "原文: [_source_display]" style "livetl_source"
+    hbox:
+        spacing 4
+
+        if livetl_current_kind == "string":
+            text "条目:" style "livetl_source"
+        else:
+            text "原文:" style "livetl_source"
+
+        add _livetl_source_widget id "livetl_source"
 
     if livetl_show_id and livetl_current_tid:
         text "id: [livetl_current_tid!q]" size 16
@@ -465,6 +475,7 @@ screen livetl_edit_body():
     # 用自带鼠标支持的控件（官方 Input 点不进、也挡不住点击）：
     # 点一下定位光标、拖拽选词、双击选词、Ctrl+A 全选、Ctrl+X 剪切，
     # Ctrl+Z / Ctrl+Y 撤销与重做；绑成快捷键的按键要让给面板的 key 语句。
+    # 原文行最后被点过时，Ctrl+A / Ctrl+C 归原文（见 livetl_engine_input.rpy）。
     $ _livetl_input_widget = livetl_engine_input_widget(
           livetl_value, 2000, style="livetl_input", size=22,
           hotkey_filter=livetl_hotkey_input_mode)
