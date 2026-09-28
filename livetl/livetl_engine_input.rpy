@@ -677,8 +677,12 @@ init -90 python:
         def _livetl_click_count(self, st, x, y):
             """连击计数：同一位置、0.5 秒内再按一次算下一击。"""
             close = (abs(x - self.click_pos[0]) <= 4) and (abs(y - self.click_pos[1]) <= 4)
+            delta = st - self.click_time
 
-            if close and ((st - self.click_time) <= 0.5):
+            # 时间差要落在 [0, 0.5]：新的一次交互里 st 会从头开始数，拿旧记录
+            # 相减是负数 —— 那种"时钟倒着走"不是连击（实测：不判下界的话，
+            # 上一条用例拖动时在同一点按过一下，就能让这一次的双击变成三击）。
+            if close and (0.0 <= delta <= 0.5):
                 self.click_count += 1
             else:
                 self.click_count = 1
