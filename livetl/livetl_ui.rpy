@@ -291,7 +291,8 @@ screen livetl_panel():
                     # 拖拽选区、点击不再穿透）；绑成快捷键的按键要让它过路
                     $ _livetl_language_widget = livetl_engine_input_widget(
                           livetl_language_value, 40, style="livetl_input", size=22,
-                          hotkey_filter=livetl_hotkey_input_mode)
+                          hotkey_filter=livetl_hotkey_input_mode,
+                          **livetl_panel_text_props())
                     add _livetl_language_widget id "livetl_language_input"
 
                     # 已有的语言列表（单独一个 screen，见 livetl_language_list）
@@ -456,7 +457,7 @@ screen livetl_edit_body():
     # 插值里不做函数调用，先算好再显示（兼容 8.1）
     $ _source_display = livetl_input_text(livetl_current_source)
     $ _livetl_source_widget = livetl_engine_input_source_widget(
-          _source_display, style="livetl_source")
+          _source_display, style="livetl_source", **livetl_panel_text_props())
 
     hbox:
         spacing 4
@@ -478,7 +479,7 @@ screen livetl_edit_body():
     # 原文行最后被点过时，Ctrl+A / Ctrl+C 归原文（见 livetl_engine_input.rpy）。
     $ _livetl_input_widget = livetl_engine_input_widget(
           livetl_value, 2000, style="livetl_input", size=22,
-          hotkey_filter=livetl_hotkey_input_mode)
+          hotkey_filter=livetl_hotkey_input_mode, **livetl_panel_text_props())
     add _livetl_input_widget id "livetl_input"
 
     # 提交与重载分开，便于连续翻译
@@ -643,6 +644,37 @@ init 500 python:
             pass
 
     livetl_apply_panel_font()
+
+    # 面板里的输入控件要用的排版参数：见 livetl_panel_text_props()
+    _livetl_panel_text_props_cache = None
+
+    def livetl_panel_text_props():
+        """面板里的输入控件要用的排版参数（建控件时按实例传进去）。
+
+        鼠标定位、拖拽选区依赖"一个字形 = 一个字符"（映射函数在引擎适配层里，
+        见那里的说明）。Ren'Py 8 默认的 harfbuzz 排版会把 `fi` 这类连字合成
+        一个字形（实测 Source Han Sans 的 "fi"：5 个字符只给 4 个字形），那样
+        整行都对不上、选不中 —— 面板是译者逐字看原文、写译文的地方，字符
+        一一对应比连字重要。
+
+        为什么不在样式上设 shaper：实测运行期给样式属性赋值不生效（读回来还是
+        原值），而且换语言重建样式之后init 期设的也会没。按实例传是唯一稳的
+        办法（字体就是这么做的），代价是只有这两个控件是 freetype，面板其余
+        文字照旧走引擎默认排版。
+
+        8.1.1 没有 shaper 这个样式属性（那边也没有字形替换），返回空字典。
+        """
+        global _livetl_panel_text_props_cache
+
+        if _livetl_panel_text_props_cache is None:
+            try:
+                known = hasattr(style.livetl_source, "shaper")
+            except Exception:
+                known = False
+
+            _livetl_panel_text_props_cache = {"shaper": "freetype"} if known else {}
+
+        return _livetl_panel_text_props_cache
 
 
 init python:

@@ -145,7 +145,12 @@ init -90 python:
         空白没有字形，但它仍然占一个内容下标 —— 借用前面那个字形的位置，
         否则它后面的字会整体偏一位。只有空白允许这样跳（见上面 ghost 集合）。
 
-        贪心配对对不上时返回 None：说明内容里有排版认不出成"一个字"的东西
+        连字（`fi` 合成一个字形）不在这里处理：面板里这两个输入控件建的时候
+        固定传 freetype 排版、不做字形替换（见面板文件里的排版参数函数），
+        所以这里可以按"一个字形一个字符"来数。`glyph.index` 指望不上 ——
+        实测它是"第几个字形"，连字时 'f' 是 4、'r' 就是 5（字符下标该是 6）。
+
+        对不上时返回 None：说明内容里有排版认不出成"一个字"的东西
         （图片、表情文字），这时宁可不认，也不要点歪。
         """
         try:
@@ -183,7 +188,7 @@ init -90 python:
                     return None
 
                 while (index < len(content)) and (content[index] != ch):
-                    # 中间这些字排版没给字形：只允许行尾空白，且必须挂在
+                    # 中间这些字排版没给字形：只允许空白，且必须挂在
                     # 前一个字的位置上（它本来就没有可见宽度）
                     if (content[index] not in _livetl_engine_input_ghost_chars) or (last is None):
                         livetl_engine_note_error(
@@ -1244,7 +1249,7 @@ init -90 python:
         return ""
 
     def livetl_engine_input_probe():
-        """面板里可选中文字的排版自检；每次运行只报一次，没画过时先不报。
+        """面板里可选中文字的排版自检；每次运行只报一次，没画过字时先不报。
 
         "排版里的字形是内容的一个子序列"（行尾空白可能没有字形，见
         _livetl_engine_input_marks）与"排版坐标 = 虚拟坐标 × oversample"
@@ -1252,6 +1257,9 @@ init -90 python:
         （语义漂移）只能靠这种自检发现，所以它写进 livetl.log。译文框报
         input_map，原文行报 source_map（原文里常常有 { } [ ] 与换行，正好把
         排版假设压得更狠；8.1 跑不了鼠标用例，这条线是那边的证据）。
+
+        两边都还没排过字（chars=0）时报出来的 ok 是假象，所以等到至少一边
+        有内容了再报。
         """
         global _livetl_engine_input_probed
 
@@ -1268,13 +1276,17 @@ init -90 python:
         if widget is None:
             return []
 
+        source = _livetl_engine_source_widget
+        source_ready = (source is not None) and (source.get_layout() is not None) and bool(source.content or "")
+
+        if (not (widget.content or "")) and (not source_ready):
+            return []
+
         _livetl_engine_input_probed = True
 
         line = "engine seam runtime: " + _livetl_engine_input_probe_field("input", widget)
 
-        source = _livetl_engine_source_widget
-
-        if (source is not None) and (source.get_layout() is not None):
+        if source_ready:
             line += " " + _livetl_engine_input_probe_field("source", source)
 
         return [line]
