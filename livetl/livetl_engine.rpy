@@ -871,6 +871,85 @@ init -90 python:
 
         return True
 
+    # 鼠标滚轮在键位表里的写法：8.1 用 mousedown_4/5，
+    # 8.5 的 rollforward 用的是 n_4 / n_5（编号事件写法）
+    _livetl_engine_wheel_keys = frozenset(["mousedown_4", "mousedown_5", "n_4", "n_5"])
+
+    def livetl_engine_wheel_roll_guard(active):
+        """把鼠标滚轮从"回退 / 前进"的全局绑定里摘掉（或放回去）。
+
+        面板 screen 里的 key 兜底拦不住滚轮 —— screen 的 Keymap 是空尺寸的
+        Null，实测收不到鼠标事件（滚轮照样触发回退，还会把搜索界面的 store
+        状态一起滚回去）。所以这里直接动 config.keymap 的 rollback /
+        rollforward 两项：只摘掉鼠标滚轮的写法，viewport 的滚动绑定
+        （viewport_wheelup / wheeldown）保持原样，结果列表照常滚。
+
+        `active` 是"现在该不该挡"（幂等：每交互重算一次，热重载重建
+        config.keymap 后也能自己接上）。原绑定记在 session 里（回退、
+        热重载都不丢）。成功返回 True；config.keymap 不可用时返回 False。
+        """
+        try:
+            keymap = config.keymap
+        except Exception as e:
+            livetl_engine_note_error("wheel_guard/keymap", e)
+            return False
+
+        if not isinstance(keymap, dict):
+            livetl_engine_note_error("wheel_guard/keymap", "config.keymap is not a dict")
+            return False
+
+        saved = livetl_state_get("livetl_wheel_roll_saved", None)
+        changed = False
+
+        if active:
+            if saved is None:
+                saved = {}
+
+                for name in ("rollback", "rollforward"):
+                    keys = keymap.get(name)
+
+                    if keys is None:
+                        continue
+
+                    # 用"能迭代"判断，不能用 isinstance(list)：引擎放在
+                    # config.keymap 里的是 store 的 _keymap_list，而 store
+                    # 的 list 是 rollback 用的变体，isinstance 判定为 False
+                    # （实测：saved 空掉、摘绑定的循环整个跳过）。
+                    try:
+                        saved[name] = [k for k in keys]
+                    except Exception as e:
+                        livetl_engine_note_error("wheel_guard/keys", e)
+
+                livetl_state_set("livetl_wheel_roll_saved", saved)
+
+            for name, keys in saved.items():
+                new_keys = [k for k in keys if k not in _livetl_engine_wheel_keys]
+
+                if keymap.get(name) != new_keys:
+                    keymap[name] = new_keys
+                    changed = True
+        else:
+            if saved is None:
+                return True
+
+            for name, keys in saved.items():
+                if keymap.get(name) != list(keys):
+                    keymap[name] = list(keys)
+                    changed = True
+
+            livetl_state_set("livetl_wheel_roll_saved", None)
+
+        if changed:
+            # map_event() 会把编译好的判定缓存起来，改完 config.keymap
+            # 必须清一次缓存才生效（不做的话改动看起来完全无效 —— 实测）。
+            try:
+                renpy.clear_keymap_cache()
+            except Exception as e:
+                livetl_engine_note_error("wheel_guard/clear_cache", e)
+                return False
+
+        return True
+
     # ---------------------------------------------------------------------
     # 契约层：字体与文本排版缓存
     # ---------------------------------------------------------------------

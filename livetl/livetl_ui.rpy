@@ -18,6 +18,10 @@ init python:
         livetl_state_set("livetl_visible", value)
         store.livetl_visible = value
 
+        # 折叠 / 展开立刻校正滚轮守卫（不能等下一次交互：
+        # 折叠只是改 store 变量，测试与脚本调用都不产生新交互）
+        livetl_find_guard_sync()
+
     def livetl_toggle_visible():
         livetl_set_visible(not livetl_state_get("livetl_visible", True))
 
@@ -114,6 +118,21 @@ init python:
             livetl_submit()
             return None
 
+    class LiveTLFindInputValue(LiveTLInputValue):
+        """搜索框的取值对象：内容一变就按新关键词刷新结果。
+
+        搜索是即时过滤：每敲一个字都重新过滤一遍索引（几万条在内存里
+        跑子串匹配）。回车在搜索页没有别的动作。
+        """
+
+        def set_text(self, s):
+            rv = LiveTLInputValue.set_text(self, s)
+            livetl_find_refresh()
+            return rv
+
+        def enter(self):
+            return None
+
     class LiveTLFontDropTarget(renpy.Displayable):
         """接住从系统里拖进来的字体文件。
 
@@ -202,6 +221,18 @@ init python:
     # 面板的临时状态：普通赋值，不用 default（原因见 livetl_setup.rpy 里的说明；
     # 这几项本来也不需要"存档 + 回退"）。
     livetl_value = LiveTLInputValue("livetl_input")
+
+    # 搜索页 / 编辑搜索结果的状态（理由与上面相同；值是普通 Python 值，
+    # 不写 default：这些是面板临时状态）。
+    livetl_find_value = LiveTLFindInputValue("livetl_find_input")
+    livetl_find_input = ""
+    livetl_find_query = ""
+    livetl_find_results = []
+    livetl_find_total = 0
+    livetl_find_loaded_index = -1
+    livetl_edit_origin = ""
+    livetl_find_tid = None
+
     livetl_font_panel_open = False
     livetl_font_choices = []
 
@@ -400,18 +431,31 @@ screen livetl_panel():
                 # 标题栏
                 hbox:
                     spacing livetl_px(12)
-                    text "LiveTL":
-                        style "livetl_title"
-                    if livetl_mode == "menu":
-                        text "菜单 · [livetl_menu_count] 条":
+
+                    if livetl_mode == "find":
+                        textbutton "回当前条" style "livetl_action" action Function(livetl_find_close)
+                        text "搜索条目":
                             style "livetl_title"
-                    elif livetl_mode == "dup":
-                        text "查重体检":
+                    elif livetl_mode == "find_edit":
+                        textbutton "回搜索" style "livetl_action" action Function(livetl_find_back)
+                        text "搜索结果":
                             style "livetl_title"
+                    else:
+                        text "LiveTL":
+                            style "livetl_title"
+                        if livetl_mode == "menu":
+                            text "菜单 · [livetl_menu_count] 条":
+                                style "livetl_title"
+                        elif livetl_mode == "dup":
+                            text "查重体检":
+                                style "livetl_title"
+
                     textbutton "折叠" style "livetl_action" action Function(livetl_set_visible, False)
 
                 if livetl_mode == "dup":
                     use livetl_dup_body()
+                elif livetl_mode == "find":
+                    use livetl_find_body()
                 else:
                     if livetl_mode == "menu":
                         use livetl_menu_body()
@@ -457,6 +501,38 @@ screen livetl_language_list():
         text "tl 目录下还没有翻译。" style "livetl_hint"
 
 
+# -----------------------------------------------------------------------------
+# 搜索页：搜索框 + 结果列表（空搜索词 = 未翻清单）
+# -----------------------------------------------------------------------------
+
+screen livetl_find_body():
+
+    # 搜索框：与译文框同一个控件（中文输入法、鼠标选词、快捷键让路都在）。
+    # 内容一变就重新过滤一遍（见 LiveTLFindInputValue.set_text）。
+    $ _livetl_find_widget = livetl_engine_input_widget(
+          livetl_find_value, 60, style="livetl_input", size=livetl_px(22),
+          hotkey_filter=livetl_hotkey_input_mode, **livetl_panel_text_props())
+    add _livetl_find_widget id "livetl_find_input"
+
+    # 命中统计（"未翻 N 条" / "共 N 条，显示前 M"）
+    $ _livetl_find_hint = livetl_find_hint_text()
+    text "[_livetl_find_hint]" style "livetl_hint"
+
+    if livetl_find_results:
+        viewport:
+            ymaximum livetl_px(livetl_menu_list_height)
+            scrollbars "vertical"
+            mousewheel True
+
+            vbox:
+                spacing livetl_px(2)
+
+                for _livetl_find_row_index in range(len(livetl_find_results)):
+                    textbutton livetl_find_row_text(_livetl_find_row_index):
+                        style "livetl_menu_item"
+                        action Function(livetl_find_select, _livetl_find_row_index)
+
+
 screen livetl_edit_body():
 
     # 原文行是只读控件：拖选、双击选词、三击全选、Ctrl+A 全选、Ctrl+C
@@ -477,7 +553,12 @@ screen livetl_edit_body():
 
         add _livetl_source_widget id "livetl_source"
 
-    if livetl_show_id and livetl_current_tid:
+    # 搜索装载的条目显示它的位置（源码 / tl），剧情当前句还是显示标识符
+    if livetl_edit_origin == "find":
+        $ _livetl_find_where = livetl_find_edit_where()
+        if _livetl_find_where:
+            text "[_livetl_find_where]" size livetl_px(16)
+    elif livetl_show_id and livetl_current_tid:
         text "id: [livetl_current_tid!q]" size livetl_px(16)
 
     # 译文输入框：已保存过就填进去方便修改，否则留空。
@@ -499,6 +580,9 @@ screen livetl_edit_body():
             action livetl_clear_action()
         textbutton "重载" style "livetl_action" action Function(livetl_reload)
         textbutton "拾取" style "livetl_action" action Function(livetl_pick_enter)
+
+        if livetl_mode != "find_edit":
+            textbutton "搜索" style "livetl_action" action Function(livetl_find_open)
 
         if (livetl_mode != "menu") and (renpy.get_screen("choice") is not None):
             textbutton "回菜单" style "livetl_action" action Function(livetl_menu_back)
@@ -790,6 +874,10 @@ init python:
         # 面板里的输入框会跟游戏的输入框抢键盘焦点。
         # 输入结束后自动展开回原来的状态。
         livetl_sync_input_collapse()
+
+        # 搜索界面（搜索页 / 编辑搜索结果）打开时：滚轮不落到游戏的回退 /
+        # 前进上（见 seam 与 livetl_find.rpy 里的说明）
+        livetl_find_guard_sync()
 
         if renpy.get_screen("livetl_panel") is None:
             renpy.show_screen("livetl_panel")

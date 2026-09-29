@@ -1,9 +1,9 @@
 # =============================================================================
 # LiveTL —— 快捷键
 #
-# 五个动作可以绑快捷键，按"什么时候需要它"分成两类（screen 里的挂法不同）：
-#   * 全局：显示 / 折叠面板、进入拾取 —— 面板折叠了也要能把面板叫回来，
-#     所以挂在面板 screen 的顶层；
+# 六个动作可以绑快捷键，按"什么时候需要它"分成两类（screen 里的挂法不同）：
+#   * 全局：显示 / 折叠面板、进入拾取、打开搜索 —— 面板折叠了也要能用
+#     （把面板叫回来 / 随时查条目），所以挂在面板 screen 的顶层；
 #   * 只在面板展开时：提交、重载、清空 —— 这三个只在写字时才有意义，
 #     折叠后不绑，免得抢走游戏自己的按键。
 #
@@ -41,6 +41,7 @@ init -50 python:
     livetl_hotkey_actions = [
         ("toggle", "livetl_hotkey", "显示 / 折叠面板"),
         ("pick", "livetl_pick_hotkey", "拾取模式"),
+        ("find", "livetl_find_hotkey", "搜索条目"),
         ("submit", "livetl_submit_hotkey", "提交"),
         ("reload", "livetl_reload_hotkey", "重载"),
         ("clear", "livetl_clear_hotkey", "清空"),
@@ -447,8 +448,16 @@ init -50 python:
         if not store.livetl_pick_active:
             names.append("pick")
 
+        # 搜索键全局可用：折叠时按下会展开面板并直接进搜索页；
+        # 设置页、查重页、拾取模式下不挂，免得抢走游戏自己的按键。
+        if ((not store.livetl_pick_active) and (not livetl_need_setup())
+                and (store.livetl_mode != "dup")):
+            names.append("find")
+
+        # 提交 / 重载 / 清空只在写着译文时才挂：搜索页本身没有编辑对象，
+        # 也排除；编辑搜索结果时它们照常生效。
         if (store.livetl_visible and (not store.livetl_pick_active)
-                and (not livetl_need_setup()) and (store.livetl_mode != "dup")):
+                and (not livetl_need_setup()) and (store.livetl_mode not in ("dup", "find"))):
             names.extend(["submit", "reload", "clear"])
 
         rv = []
@@ -595,6 +604,8 @@ init -50 python:
         elif action == "pick":
             if not store.livetl_pick_active:
                 livetl_pick_enter()
+        elif action == "find":
+            livetl_find_open()
         elif action == "submit":
             livetl_submit()
         elif action == "reload":

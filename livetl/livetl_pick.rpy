@@ -155,6 +155,8 @@ init -50 python:
 
     def livetl_pick_enter():
         """进入拾取模式。"""
+        # 从搜索编辑态进拾取：出来时编辑的是拾取到的东西，不再是装载条目
+        livetl_find_leave()
         livetl_pick_set_active(True)
         livetl_set_status("拾取模式：点击要翻译的文本，Esc 退出")
 

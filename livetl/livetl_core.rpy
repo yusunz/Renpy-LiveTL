@@ -486,14 +486,89 @@ init -50 python:
         """这个语言已经写过的台词标识符（集合）。"""
         return set(livetl_scan_tl_entry_files(language).keys())
 
+    def livetl_scan_tl_entry_texts(language=None, force=False):
+        """扫描这个语言的台词块：{标识符: 译文}（块里没写译文行时是空串）。
+
+        与 livetl_read_entry 同一套语义：同一个标识符在多个文件里都有时，
+        按加载顺序后来居上（引擎的登记就是一次覆盖赋值）。只认
+        `translate <语言> <标识符>:` 台词块，不碰 strings / python / style。
+        结果缓存在 session（键里带各文件的 mtime/size），插件写完文件后由
+        livetl_invalidate_tl_indexes() 作废。
+
+        给条目搜索用：几万个标识符逐条走 livetl_read_entry 会把每个文件
+        反复读很多遍，这里一次全读出来。
+        """
+        if language is None:
+            language = livetl_target_language()
+
+        files = livetl_iter_tl_files(language)
+        stamp = []
+
+        for path in files:
+            try:
+                st = os.stat(path)
+                stamp.append((path, int(st.st_mtime), st.st_size))
+            except Exception:
+                pass
+
+        cached = livetl_state_get("livetl_tl_entry_texts")
+
+        if (not force) and cached and (cached[0] == language) and (cached[1] == stamp):
+            return cached[2]
+
+        pattern = re.compile(r"^\s*translate\s+" + re.escape(str(language)) + r"\s+(\S+)\s*:\s*$")
+        rv = {}
+
+        for path in files:
+            try:
+                # 用 utf-8 读、手动去掉 BOM：不依赖 utf-8-sig（部分环境没有）
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+            except Exception:
+                continue
+
+            if content.startswith("\ufeff"):
+                content = content[1:]
+
+            tid = None
+
+            for line in content.split("\n"):
+                m = pattern.match(line)
+
+                if m is not None:
+                    tid = None if (m.group(1) in _livetl_special_translates) else m.group(1)
+                    continue
+
+                if tid is None:
+                    continue
+
+                s = line.strip()
+
+                if (not s) or s.startswith("#"):
+                    continue
+
+                # 块里第一条不是空行、不是注释的行就是译文（与
+                # _livetl_file_block_value 同一条规则）；解析不出引号就当
+                # 这个文件没有这条，与单条读取的返回值语义一致。
+                value = livetl_parse_quoted(line)
+
+                if value is not None:
+                    rv[tid] = value
+
+                tid = None
+
+        livetl_state_set("livetl_tl_entry_texts", (language, stamp, rv))
+        return rv
+
     def livetl_invalidate_tl_indexes():
         """写回 / 生成 / 清理之后把 tl 相关的缓存全部作废。
 
-        语言索引（哪些语言在哪些目录里）、台词 → 文件、字符串索引，三份都是
-        从 tl 文件读出来的，改了文件就必须重建。
+        语言索引（哪些语言在哪些目录里）、台词 → 文件、台词 → 译文、字符串
+        索引，四份都是从 tl 文件读出来的，改了文件就必须重建。
         """
         livetl_invalidate_language_index()
         livetl_state_pop("livetl_tl_entry_files", None)
+        livetl_state_pop("livetl_tl_entry_texts", None)
         livetl_invalidate_string_index()
 
     def livetl_count_tl_entries(language=None):
@@ -833,8 +908,9 @@ init -50 python:
         用 caption 列表做指纹：同一个菜单只重建一次列表，
         避免每次交互都重新扫描 tl 文件。
         """
-        # 体检界面正在接管面板时不要抢（否则点【检查重复】会被立刻弹回去）
-        if store.livetl_mode == "dup":
+        # 体检 / 搜索界面正在接管面板时不要抢（否则点【检查重复】会被立刻
+        # 弹回去；搜索时剧情停在菜单选择上也会被每帧抢回列表）
+        if store.livetl_mode in ("dup", "find", "find_edit"):
             return False
 
         captions = livetl_menu_captions()
@@ -876,6 +952,8 @@ init -50 python:
             livetl_set_status("当前没有菜单")
             return
 
+        # 从"编辑搜索结果"点回菜单时，提交对象要回到剧情/菜单这边
+        livetl_find_leave()
         livetl_state_set("livetl_menu_hold", False)
         store.livetl_mode = "menu"
         livetl_menu_sync()
@@ -1047,13 +1125,18 @@ init -50 python:
             if rel:
                 livetl_set_status("已写入 tl/{}（按重载生效）".format(rel))
                 livetl_menu_refresh()
+                livetl_find_after_write()
             else:
                 livetl_set_status("写入失败，详见 livetl.log")
 
             return
 
         # 对话：写进对应语句的 translate 块
-        tid = livetl_current_id()
+        if store.livetl_edit_origin == "find":
+            # 搜索装载的条目：写回它自己，而不是剧情当前句
+            tid = store.livetl_find_tid
+        else:
+            tid = livetl_current_id()
 
         if not tid:
             livetl_set_status("当前没有可翻译的台词")
@@ -1062,6 +1145,7 @@ init -50 python:
         path = livetl_write_entry(livetl_target_language(), tid, text)
         if path:
             livetl_invalidate_tl_indexes()
+            livetl_find_after_write()
             livetl_set_status("已写入 tl/{}（按重载生效）".format(
                 os.path.relpath(path, livetl_engine_tl_root()).replace("\\", "/"),
             ))
@@ -1090,12 +1174,17 @@ init -50 python:
                 store.livetl_input = ""
                 livetl_set_status("已删除字符串条目（{}）".format(rel))
                 livetl_menu_refresh()
+                livetl_find_after_write()
             else:
                 livetl_set_status("没有找到可删除的条目")
 
             return
 
-        tid = livetl_current_id()
+        if store.livetl_edit_origin == "find":
+            # 搜索装载的条目：清的是它，而不是剧情当前句
+            tid = store.livetl_find_tid
+        else:
+            tid = livetl_current_id()
 
         if not tid:
             livetl_set_status("当前没有可清空的台词")
@@ -1105,6 +1194,7 @@ init -50 python:
 
         if path:
             livetl_invalidate_tl_indexes()
+            livetl_find_after_write()
             store.livetl_input = ""
             livetl_set_status("已清空这一句的译文（按重载生效）")
         else:
