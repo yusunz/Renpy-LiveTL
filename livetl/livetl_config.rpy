@@ -103,8 +103,22 @@ init -100 python:
     # 面板停靠位置："top-right" 或 "bottom-right"。
     livetl_position = "top-right"
 
-    # 面板宽度（像素）。
+    # 面板宽度（1080p 设计稿上的像素；显示时经 livetl_px() 换算到当前画布）。
     livetl_panel_width = 680
+
+    # 面板整体尺寸倍数。
+    #   None —— 自动：按画布高度算（config.screen_height / 1080）。
+    #           720p → 2/3、1080p → 1.0、3840x2160 → 2.0。
+    #   数字 —— 手动倍数，覆盖自动值：某份游戏里觉得面板偏大 / 偏小就填一个数。
+    #
+    # 面板里所有尺寸数字都是 1080p 设计稿上的像素（宽 680、正文 20 之类），
+    # 经 livetl_px() 换算到当前画布：画布越大面板越大，各分辨率下观感一致。
+    # 基准取 1080p、不是引擎自己 GUI 的 720p（renpy/common/00gui.rpy 是
+    # height / 720）：面板是工具，要比游戏正文小一号 —— 1080p 上 680 宽占画布
+    # 35%、正文 20px 约等于引擎模板正文（33px）的三分之二；用 720 基准时面板
+    # 会和游戏正文一样大（4K 游戏上实测过，偏大）。完全不换算则小到看不清
+    # （3840x2160 的游戏里，20px 的面板字在窗口里只剩约 9 个物理像素）。
+    livetl_ui_scale = None
 
     # 输入框里选中文字时的底色（用于拖拽选词）。
     # 面板本身是深色底，用带透明度的浅色最清楚；写法与 Ren'Py 的
@@ -123,7 +137,7 @@ init -100 python:
     # 把这项改成 False 即可。
     livetl_mute_ime_while_binding = True
 
-    # 菜单列表在面板上的最大高度（像素），条目多了之后列表内滚动。
+    # 菜单列表在面板上的最大高度（1080p 设计稿像素），条目多了之后列表内滚动。
     livetl_menu_list_height = 260
 
     # 启动时是否自动检查 tl 目录里的重复字符串条目。
@@ -132,6 +146,34 @@ init -100 python:
 
     # 是否把调试信息写入 game/livetl.log（排查问题时打开）。
     livetl_debug = True
+
+    # ---------------------------------------------------------------------
+    # 面板缩放：设计稿像素 → 当前画布的虚拟像素
+    #
+    # 设计稿 = 1080p 画布（见上面 livetl_ui_scale 的说明）。
+    # 读取必须发生在用的时候：本文件在 init -100 执行，而游戏画布是 gui.init()
+    # 在 init -2 设置的 —— 在这里提前算好会拿到引擎默认的 800x600。
+    # ---------------------------------------------------------------------
+
+    def livetl_ui_scale_value():
+        """面板当前生效的倍数：livetl_ui_scale 优先，否则按画布高度自动算。"""
+        if livetl_ui_scale is not None:
+            try:
+                value = float(livetl_ui_scale)
+
+                if value > 0:
+                    return value
+            except Exception:
+                pass
+
+        try:
+            return max(0.25, float(config.screen_height) / 1080.0)
+        except Exception:
+            return 1.0
+
+    def livetl_px(n):
+        """1080p 设计稿上的像素 → 当前画布上的虚拟像素。"""
+        return int(round(float(n) * livetl_ui_scale_value()))
 
     # ---------------------------------------------------------------------
     # 译者改过的设置：记在 session

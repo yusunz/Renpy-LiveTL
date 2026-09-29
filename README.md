@@ -57,6 +57,7 @@
 | `livetl_panel_font` | `""` | 面板字体；留空 = 跟随游戏字体 |
 | `livetl_hotkey` / `livetl_pick_hotkey` | `"K_F8"` / `"K_F9"` | 折叠面板 / 拾取模式 |
 | `livetl_position` | `"top-right"` | 面板位置，可选 `bottom-right` |
+| `livetl_ui_scale` | `None` | 面板缩放；`None` = 按画布自动（1080p = 1.0），可填数字覆盖 |
 | `livetl_autocomplete_on_start` | `True` | 启动时自动增量补模板 |
 
 **字体**：【设置】→【选择字体】即可更换，桌面平台也可以把字体文件直接拖进游戏窗口，

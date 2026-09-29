@@ -22,7 +22,7 @@ init -50 python:
     livetl_pick_px = 0
     livetl_pick_py = 0
 
-    # 预览框宽度上限，用于贴边时翻到鼠标另一侧
+    # 预览框宽度上限（1080p 设计稿像素），用于贴边时翻到鼠标另一侧
     _livetl_pick_preview_width = 440
 
     def livetl_pick_own(location):
@@ -263,15 +263,15 @@ init -50 python:
         if text != store.livetl_pick_preview:
             store.livetl_pick_preview = text
 
-        # 预览框放在鼠标右下方；贴边时翻到另一侧
-        px = x + 16
-        py = y + 16
+        # 预览框放在鼠标右下方；贴边时翻到另一侧（留白按 1080p 设计稿换算）
+        px = x + livetl_px(16)
+        py = y + livetl_px(16)
 
-        if px > (renpy.config.screen_width - _livetl_pick_preview_width):
-            px = max(8, x - _livetl_pick_preview_width)
+        if px > (renpy.config.screen_width - livetl_px(_livetl_pick_preview_width)):
+            px = max(livetl_px(8), x - livetl_px(_livetl_pick_preview_width))
 
-        if py > (renpy.config.screen_height - 90):
-            py = max(8, y - 90)
+        if py > (renpy.config.screen_height - livetl_px(90)):
+            py = max(livetl_px(8), y - livetl_px(90))
 
         store.livetl_pick_px = px
         store.livetl_pick_py = py
@@ -299,7 +299,7 @@ screen livetl_pick():
     frame:
         style "livetl_pick_tip"
         xalign 0.5
-        ypos 10
+        ypos livetl_px(10)
         text "[_livetl_pick_status]" style "livetl_pick_tip_text"
 
     # 鼠标附近的原文预览
@@ -310,7 +310,7 @@ screen livetl_pick():
             style "livetl_pick_preview"
             xpos livetl_pick_px
             ypos livetl_pick_py
-            xmaximum _livetl_pick_preview_width
+            xmaximum livetl_px(_livetl_pick_preview_width)
             text "[_livetl_pick_pv]" style "livetl_pick_preview_text"
 
     # 全屏点击捕获：点击 = 拾取当前鼠标下的文本
@@ -325,16 +325,16 @@ screen livetl_pick():
 
 style livetl_pick_tip is default:
     background "#000000c8"
-    padding (14, 8)
+    padding (livetl_px(14), livetl_px(8))
 
 style livetl_pick_tip_text is default:
-    size 20
+    size livetl_px(20)
     color "#ffcc66"
 
 style livetl_pick_preview is default:
     background "#000000dd"
-    padding (10, 6)
+    padding (livetl_px(10), livetl_px(6))
 
 style livetl_pick_preview_text is default:
-    size 18
+    size livetl_px(18)
     color "#dfdfdf"

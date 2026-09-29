@@ -1085,23 +1085,28 @@ init -90 python:
 
         比译文输入框轻：不接输入法、不进 InputValue 注册表（value=None）、
         不处理粘贴 / 剪切 / 撤销，只把鼠标那套选择行为拿过来，再加 Ctrl+A
-        与 Ctrl+C 两个键（见 LiveTLInput.event 的只读分支）。左侧留 8px：
-        3px 的归属提示条 + 5px 间隙，文字整体右移，不因归属切换而位移。
+        与 Ctrl+C 两个键（见 LiveTLInput.event 的只读分支）。左侧留 8px
+        （1080p 设计稿，随画布换算）：3px 的归属提示条 + 5px 间隙，
+        文字整体右移，不因归属切换而位移。
         """
 
         # 只读模式：事件走 LiveTLInput.event 里的只读分支
         livetl_readonly = True
 
-        # 左侧留白：3px 提示条 + 5px 间隙
+        # 左侧留白：3px 提示条 + 5px 间隙（1080p 设计稿，实例化时按画布换算）
         livetl_content_offset = 8
 
-        # 提示条宽度
+        # 提示条宽度（1080p 设计稿）
         _livetl_bar_width = 3
 
         def __init__(self, **kwargs):
             kwargs.setdefault("editable", False)
             kwargs.setdefault("hotkey_filter", None)
             LiveTLInput.__init__(self, **kwargs)
+
+            # 面板放大时，留白与提示条跟着一起放大，和字号保持同一比例
+            self.livetl_content_offset = livetl_px(8)
+            self._livetl_bar_width = livetl_px(3)
 
         def _livetl_focus_bar(self):
             """归属在原文时画左侧提示条；否则不画。"""
