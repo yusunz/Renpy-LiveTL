@@ -145,6 +145,50 @@ init -20 python:
             language, directory, count, added,
         ))
 
+    def livetl_game_language_text():
+        """设置界面显示的"游戏当前语言"；默认语言时是"默认（原文）"。"""
+        language = livetl_engine_current_language()
+        return language if language else "默认（原文）"
+
+    def livetl_switch_to_default_language():
+        """把游戏切回默认语言（None，也就是原文），并记住这个选择。
+
+        引擎把当前语言记在游戏偏好里（persistent 的 _preferences.language），
+        所以切回去之后重启游戏、甚至把插件删掉，游戏都停在原文 —— 这正是
+        "翻译结束了 / 不想翻译了"时要的状态。
+        目标语言与配置里的那一行都不动：再点【开始翻译】就切回来，
+        已经翻好的 tl 文件一个字节也不碰。
+
+        界面动作必须返回 None，否则返回值会被当成交互结果（见 AGENTS.md）。
+        """
+        previous = livetl_engine_current_language()
+
+        try:
+            renpy.change_language(None)
+        except Exception as e:
+            livetl_log("change_language(None) failed: {!r}".format(e))
+            livetl_set_status("切回默认语言失败：{}".format(e))
+            return None
+
+        livetl_log("change_language -> None (was {!r})".format(previous))
+
+        # 换了语言就换了一套 tl 脚本（里面可能设了字体），字体替换表要重扫；
+        # 顺序与 livetl_confirm_language() 的收尾一致：先切语言，再重建替换表。
+        try:
+            livetl_font_apply_now()
+        except Exception as e:
+            livetl_log("font re-apply after switching to default failed: {!r}".format(e))
+
+        if previous is None:
+            livetl_set_status("游戏本来就是默认语言（原文），没有要切的")
+        else:
+            livetl_set_status(
+                "已切回默认语言（原文）：{} 的译文不再生效。这个选择记在游戏偏好里，"
+                "之后启动、删掉插件都保持原文，想继续翻译点【开始翻译】".format(previous),
+            )
+
+        return None
+
     def livetl_open_setup():
         """回到语言设置界面。
 

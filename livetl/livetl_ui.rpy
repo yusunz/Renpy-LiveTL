@@ -302,7 +302,14 @@ screen livetl_panel():
                     hbox:
                         spacing livetl_px(10)
                         textbutton "开始翻译" style "livetl_action" action Function(livetl_confirm_language)
+                        textbutton "切回默认" style "livetl_action" action Function(livetl_switch_to_default_language)
                         textbutton "检查重复" style "livetl_action" action Function(livetl_dup_open)
+
+                    # 游戏当前语言与【切回默认】的说明：语言是引擎自己的偏好
+                    # （persistent 的 _preferences.language），点过【切回默认】
+                    # 之后，重启、甚至删掉插件，游戏都停在原文语言。
+                    $ _livetl_game_language = livetl_game_language_text()
+                    text "游戏当前语言：[_livetl_game_language]。翻译结束点【切回默认】：切回原文并记住，之后启动、删掉插件都保持原文；想继续翻译点【开始翻译】。" style "livetl_hint"
 
                     # 换字体：点按钮出字体列表；也可以把字体文件直接拖进窗口
                     $ _font_display = livetl_font_display_name()

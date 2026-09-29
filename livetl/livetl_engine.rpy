@@ -136,6 +136,26 @@ init -90 python:
             return None
 
     # ---------------------------------------------------------------------
+    # 契约层：当前语言
+    # ---------------------------------------------------------------------
+
+    def livetl_engine_current_language():
+        """游戏当前的语言名；默认语言（None）时返回 None。
+
+        语言是引擎自己的偏好：renpy.change_language() 写的就是它，启动时
+        00start.rpy 按 RENPY_LANGUAGE ＞ config.language ＞ 它 的顺序取值，
+        所以它既是"这次运行在用哪个语言"，也是"下次启动还用哪个语言"。
+        文档承诺过的 _preferences.language（只读）就是同一个值；这里读
+        适配层里的那份，出问题时返回 None 并记进错误通道 —— 对界面来说
+        "读不到"与"默认语言"都显示成原文，退化的方向是一致的。
+        """
+        try:
+            return renpy.game.preferences.language
+        except Exception as e:
+            livetl_engine_note_error("current_language", e)
+            return None
+
+    # ---------------------------------------------------------------------
     # 契约层：定位台词与翻译数据
     # ---------------------------------------------------------------------
 
@@ -985,9 +1005,10 @@ init -90 python:
             tree = None
 
         return [
-            "engine seam runtime: lookup_translate={} surftree={} translate_nodes={}".format(
+            "engine seam runtime: lookup_translate={} surftree={} translate_nodes={} language={!r}".format(
                 _livetl_engine_lookup_shape(),
                 "yes" if tree is not None else "no",
                 len(livetl_engine_all_translate_ids()),
+                livetl_engine_current_language(),
             ),
         ]
