@@ -952,8 +952,9 @@ init -50 python:
             livetl_set_status("当前没有菜单")
             return
 
-        # 从"编辑搜索结果"点回菜单时，提交对象要回到剧情/菜单这边
-        livetl_find_leave()
+        # 从"编辑搜索结果"点回菜单时，完全离开搜索：提交对象回到剧情/菜单
+        # 这边，session 里的搜索态也清掉（否则回退会把它又翻出来）
+        livetl_find_exit()
         livetl_state_set("livetl_menu_hold", False)
         store.livetl_mode = "menu"
         livetl_menu_sync()

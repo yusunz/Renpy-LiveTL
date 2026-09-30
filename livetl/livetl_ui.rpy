@@ -18,10 +18,6 @@ init python:
         livetl_state_set("livetl_visible", value)
         store.livetl_visible = value
 
-        # 折叠 / 展开立刻校正滚轮守卫（不能等下一次交互：
-        # 折叠只是改 store 变量，测试与脚本调用都不产生新交互）
-        livetl_find_guard_sync()
-
     def livetl_toggle_visible():
         livetl_set_visible(not livetl_state_get("livetl_visible", True))
 
@@ -857,6 +853,10 @@ init python:
         if store.livetl_pick_active:
             livetl_pick_screen_sync()
         else:
+            # 搜索态以 session 为准先回正（回退只退剧情，不带走搜索界面），
+            # 再让菜单同步决定要不要接管 —— 回正后 find / find_edit 的
+            # 保护在 livetl_menu_sync 里生效。
+            livetl_find_sync()
             livetl_menu_sync()
 
         # 启动后的第一次交互做一次重复条目检查（只提示，不改文件）
@@ -874,10 +874,6 @@ init python:
         # 面板里的输入框会跟游戏的输入框抢键盘焦点。
         # 输入结束后自动展开回原来的状态。
         livetl_sync_input_collapse()
-
-        # 搜索界面（搜索页 / 编辑搜索结果）打开时：滚轮不落到游戏的回退 /
-        # 前进上（见 seam 与 livetl_find.rpy 里的说明）
-        livetl_find_guard_sync()
 
         if renpy.get_screen("livetl_panel") is None:
             renpy.show_screen("livetl_panel")

@@ -65,21 +65,59 @@ init -50 python:
         """让搜索索引缓存作废（下次进搜索页时重建）。"""
         livetl_state_pop(_livetl_find_cache_key, None)
 
-    def livetl_find_guard_sync():
-        """按当前状态应用滚轮守卫：面板可见且处于搜索界面时挡住滚轮。
+    # 搜索态的 session 载体：按 store 变量名存一份。
+    #
+    # 和面板可见性、设置页标记同一层。剧情回退（游戏 Back 按钮、滚轮、
+    # PageUp、手柄 —— 都是引擎自己的回退）回滚的是 store 变量；
+    # `livetl_ensure_panel` 每交互从这里回正，所以回退只退剧情，
+    # 不会把搜索页 / 编辑搜索结果带走，也不会让提交写回错的条目
+    # （和设置界面一个道理）。
+    _livetl_find_state_key = "livetl_find_state"
 
-        状态一变就调用（打开 / 关闭 / 回搜索 / 装载），`livetl_ensure_panel`
-        每交互再校一次兜底（折叠、设置页之类的状态变化）。
-        """
-        livetl_engine_wheel_roll_guard(
-            bool(store.livetl_visible) and (store.livetl_mode in ("find", "find_edit")),
-        )
+    _livetl_find_state_names = (
+        "livetl_mode",
+        "livetl_find_input",
+        "livetl_find_query",
+        "livetl_find_results",
+        "livetl_find_total",
+        "livetl_find_loaded_index",
+        "livetl_edit_origin",
+        "livetl_find_tid",
+        "livetl_current_kind",
+        "livetl_current_key",
+        "livetl_current_source",
+    )
+
+    def livetl_find_save():
+        """把当前搜索态写进 session（回退 / 折叠都不丢）。"""
+        state = {}
+
+        for name in _livetl_find_state_names:
+            state[name] = getattr(store, name, None)
+
+        livetl_state_set(_livetl_find_state_key, state)
+
+    def livetl_find_sync():
+        """每交互把搜索态从 session 回正到 store（回退拿不走，像设置界面）。"""
+        state = livetl_state_get(_livetl_find_state_key, None)
+
+        if not state:
+            return
+
+        for name, value in state.items():
+            if getattr(store, name, None) is not value:
+                setattr(store, name, value)
+
+    def livetl_find_exit():
+        """完全离开搜索：清装载对象与 session 里的搜索态。"""
+        livetl_find_leave()
+        livetl_state_set(_livetl_find_state_key, None)
 
     def livetl_find_leave():
         """离开搜索编辑态时的清理：提交对象回到"剧情当前句"。
 
-        别的路径把面板接管过去时（回菜单、进拾取、关搜索）都要走一遍，
-        否则下一次提交会写回旧的装载条目。
+        回搜索列表（livetl_find_back）只走这一半，搜索态还留着；回菜单、
+        进拾取、关搜索这些"完全离开"的路径走 livetl_find_exit()。
         """
         store.livetl_edit_origin = ""
         store.livetl_find_tid = None
@@ -201,6 +239,7 @@ init -50 python:
         store.livetl_find_total = len(matched)
         store.livetl_find_results = matched[:_livetl_find_limit]
         store.livetl_find_loaded_index = -1
+        livetl_find_save()
 
     def livetl_find_open():
         """打开搜索页（折叠时先展开）。"""
@@ -214,15 +253,13 @@ init -50 python:
         livetl_set_visible(True)
         store.livetl_mode = "find"
         livetl_find_leave()
-        livetl_find_guard_sync()
         livetl_find_refresh()
 
     def livetl_find_close():
         """关闭搜索，回剧情当前条（唯一的"退出搜索"动作）。"""
         store.livetl_mode = "say"
-        livetl_find_leave()
+        livetl_find_exit()
         store.livetl_find_loaded_index = -1
-        livetl_find_guard_sync()
 
         # 强制刷新：搜索期间剧情可能已经推进，这里拉回最新的当前句
         livetl_sync(force=True)
@@ -232,7 +269,7 @@ init -50 python:
         store.livetl_mode = "find"
         livetl_find_leave()
         store.livetl_find_loaded_index = -1
-        livetl_find_guard_sync()
+        livetl_find_save()
 
     def livetl_find_select(index):
         """点一条结果：装载到编辑页。"""
@@ -251,7 +288,7 @@ init -50 python:
         store.livetl_find_tid = entry["key"] if entry["kind"] == "say" else None
         store.livetl_current_source = entry["source"]
         store.livetl_input = livetl_input_text(entry["target"] or "")
-        livetl_find_guard_sync()
+        livetl_find_save()
 
     def livetl_find_edit_where():
         """编辑搜索条目时的位置提示行；不在搜索编辑时返回 ""。"""
@@ -367,3 +404,7 @@ init -50 python:
             entry["target"] = target
             entry["target_low"] = target.lower()
             entry["translated"] = bool(target)
+
+        # 结果列表与 session 里那份是同一个 list，这里的原地修改本来就已经
+        # 落进搜索态；再存一次只是让"state 永远是最新的"这个心智模型成立。
+        livetl_find_save()
