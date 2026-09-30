@@ -485,7 +485,11 @@ init -60 python:
                 "dir": directory,
                 "dirs": dirs,
                 "blocks": blocks,
-                "text": "{}    tl/{}/    {}".format(language, directory, "    ".join(notes)),
+                # 显示端是"转义 + 直接传值"（见搜索行的说明）：目录名里的
+                # `[ ] { }` 不会被引擎再解析
+                "text": livetl_escape(
+                    "{}    tl/{}/    {}".format(language, directory, "    ".join(notes)),
+                ),
             })
 
         return rows

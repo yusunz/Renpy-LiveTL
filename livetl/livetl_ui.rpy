@@ -203,8 +203,12 @@ init python:
         livetl_font_use(rel_path)
 
     def livetl_font_choice_text(choice):
-        """字体列表里一行的显示文字。"""
-        text = choice["name"]
+        """字体列表里一行的显示文字。
+
+        走"转义 + 直接传值"的显示路径（见搜索行的说明）：文件名里的
+        `[ ] { }` 不会被引擎再当插值/标签解析。
+        """
+        text = livetl_escape(choice["name"])
 
         if choice["variable"]:
             text += "（可变字体，中文可能显示方块）"
@@ -362,7 +366,7 @@ screen livetl_panel():
 
                                     for _livetl_font_choice in livetl_font_choices:
                                         $ _livetl_font_choice_text = livetl_font_choice_text(_livetl_font_choice)
-                                        textbutton "[_livetl_font_choice_text]":
+                                        textbutton _livetl_font_choice_text:
                                             style "livetl_menu_item"
                                             selected (_livetl_font_choice["path"] == livetl_font)
                                             action Function(livetl_font_choose, _livetl_font_choice["path"])
@@ -407,7 +411,7 @@ screen livetl_panel():
                     # 设置界面也要有反馈：否则点【检查重复】之类的操作看不到结果
                     if livetl_status:
                         $ _livetl_status_escaped = livetl_escape(livetl_status)
-                        text "[_livetl_status_escaped]" style "livetl_status"
+                        text _livetl_status_escaped style "livetl_status"
 
     else:
 
@@ -466,7 +470,7 @@ screen livetl_panel():
                 # 最近一次操作的反馈
                 if livetl_status:
                     $ _livetl_status_escaped = livetl_escape(livetl_status)
-                    text "[_livetl_status_escaped]" style "livetl_status"
+                    text _livetl_status_escaped style "livetl_status"
 
 
 # -----------------------------------------------------------------------------
@@ -496,7 +500,7 @@ screen livetl_language_list():
                 for _livetl_language_row in _livetl_language_rows:
                     $ _livetl_language_text = _livetl_language_row["text"]
                     $ _livetl_language_name = _livetl_language_row["language"]
-                    textbutton "[_livetl_language_text]":
+                    textbutton _livetl_language_text:
                         style "livetl_menu_item"
                         action Function(livetl_language_pick, _livetl_language_name)
     else:
@@ -518,7 +522,7 @@ screen livetl_find_body():
 
     # 命中统计（"未翻 N 条" / "共 N 条，显示前 M"）
     $ _livetl_find_hint = livetl_find_hint_text()
-    text "[_livetl_find_hint]" style "livetl_hint"
+    text _livetl_find_hint style "livetl_hint"
 
     if livetl_find_results:
         viewport:
@@ -541,10 +545,10 @@ screen livetl_find_body():
 
                             # 两行文本都已转义并（命中时）带上高亮标签，
                             # 这里交给引擎解析 —— 拼接顺序见 livetl_find.rpy
-                            text "[_livetl_find_source_row]" style "livetl_source"
+                            text _livetl_find_source_row style "livetl_source"
 
                             if _livetl_find_target_row:
-                                text "[_livetl_find_target_row]" style "livetl_find_target"
+                                text _livetl_find_target_row style "livetl_find_target"
 
 
 screen livetl_edit_body():
@@ -571,7 +575,7 @@ screen livetl_edit_body():
     if livetl_edit_origin == "find":
         $ _livetl_find_where = livetl_find_edit_where()
         if _livetl_find_where:
-            text "[_livetl_find_where]" size livetl_px(16)
+            text _livetl_find_where size livetl_px(16)
     elif livetl_show_id and livetl_current_tid:
         text "id: [livetl_current_tid!q]" size livetl_px(16)
 
@@ -646,7 +650,7 @@ screen livetl_dup_body():
 
                 for _livetl_key, _livetl_places in livetl_dup_report:
                     $ _livetl_key_text = livetl_escape(_livetl_key)
-                    text "[_livetl_key_text]" style "livetl_source"
+                    text _livetl_key_text style "livetl_source"
 
                     for _livetl_rel, _livetl_line, _livetl_new in _livetl_places:
                         text "    [_livetl_rel]:[_livetl_line]" size livetl_px(16)

@@ -303,7 +303,7 @@ screen livetl_pick():
         style "livetl_pick_tip"
         xalign 0.5
         ypos livetl_px(10)
-        text "[_livetl_pick_status]" style "livetl_pick_tip_text"
+        text _livetl_pick_status style "livetl_pick_tip_text"
 
     # 鼠标附近的原文预览
     if livetl_pick_preview:
@@ -314,7 +314,7 @@ screen livetl_pick():
             xpos livetl_pick_px
             ypos livetl_pick_py
             xmaximum livetl_px(_livetl_pick_preview_width)
-            text "[_livetl_pick_pv]" style "livetl_pick_preview_text"
+            text _livetl_pick_pv style "livetl_pick_preview_text"
 
     # 全屏点击捕获：点击 = 拾取当前鼠标下的文本
     button:
