@@ -406,7 +406,8 @@ screen livetl_panel():
 
                     # 设置界面也要有反馈：否则点【检查重复】之类的操作看不到结果
                     if livetl_status:
-                        text "[livetl_status]" style "livetl_status"
+                        $ _livetl_status_escaped = livetl_escape(livetl_status)
+                        text "[_livetl_status_escaped]" style "livetl_status"
 
     else:
 
@@ -460,7 +461,8 @@ screen livetl_panel():
 
                 # 最近一次操作的反馈
                 if livetl_status:
-                    text "[livetl_status]" style "livetl_status"
+                    $ _livetl_status_escaped = livetl_escape(livetl_status)
+                    text "[_livetl_status_escaped]" style "livetl_status"
 
 
 # -----------------------------------------------------------------------------

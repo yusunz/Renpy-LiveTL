@@ -302,7 +302,9 @@ init -50 python:
             return ""
 
         entry = results[index]
-        rel = entry["rel"]
+        # 文件路径也可能带 { } [ ]（下载目录名、非 ASCII 路径……）：
+        # 这一行会被 `text "[…]"` 解析，路径也要按字面转义
+        rel = livetl_escape(entry["rel"] or "")
         line = entry["line"]
         prefix = "tl" if entry["kind"] == "string" else "源码"
 
@@ -315,17 +317,25 @@ init -50 python:
         return ""
 
     def livetl_find_row_text(index):
-        """结果列表里某一行的显示文本（转义与截断都在这里做）。"""
+        """结果列表里某一行的显示文本（截断与转义都在这里做）。
+
+        顺序很重要：**先按原文字符截断、再转义**。反过来的话，转义会把
+        `{` 变成 `{{`，截断可能正好切在这对括号中间、留下一个裸 `{` ——
+        Ren'Py 8.3.4 渲染这一行时直接抛 "Open text tag at end of string"，
+        把游戏打崩（真实游戏实测：RoadsYetTraveled）。
+        """
         results = store.livetl_find_results
 
         if not (0 <= index < len(results)):
             return ""
 
         entry = results[index]
-        text = livetl_escape(entry["source"] or entry["key"])
+        raw = entry["source"] or entry["key"]
 
-        if len(text) > _livetl_find_row_chars:
-            text = text[:_livetl_find_row_chars] + "…"
+        if len(raw) > _livetl_find_row_chars:
+            raw = raw[:_livetl_find_row_chars] + "…"
+
+        text = livetl_escape(raw)
 
         note = "已翻" if entry["translated"] else "未翻"
 
@@ -355,7 +365,8 @@ init -50 python:
             if len(text) > 20:
                 text = text[:20] + "…"
 
-            return "没有匹配「{}」的条目".format(text)
+            # 与结果行同一条规则：先截断、再转义（截断切坏 {{ 会留下裸 {）
+            return "没有匹配「{}」的条目".format(livetl_escape(text))
 
         if shown < total:
             return "共 {} 条，显示前 {}".format(total, shown)
