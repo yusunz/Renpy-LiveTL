@@ -530,9 +530,21 @@ screen livetl_find_body():
                 spacing livetl_px(2)
 
                 for _livetl_find_row_index in range(len(livetl_find_results)):
-                    textbutton livetl_find_row_text(_livetl_find_row_index):
+                    $ _livetl_find_source_row = livetl_find_row_source(_livetl_find_row_index)
+                    $ _livetl_find_target_row = livetl_find_row_target(_livetl_find_row_index)
+                    button:
                         style "livetl_menu_item"
                         action Function(livetl_find_select, _livetl_find_row_index)
+
+                        vbox:
+                            spacing livetl_px(2)
+
+                            # 两行文本都已转义并（命中时）带上高亮标签，
+                            # 这里交给引擎解析 —— 拼接顺序见 livetl_find.rpy
+                            text "[_livetl_find_source_row]" style "livetl_source"
+
+                            if _livetl_find_target_row:
+                                text "[_livetl_find_target_row]" style "livetl_find_target"
 
 
 screen livetl_edit_body():
@@ -698,6 +710,10 @@ style livetl_menu_item_text is default:
     hover_color "#ffcc66"
     selected_color "#ffcc66"
 
+style livetl_find_target is default:
+    size livetl_px(18)
+    color "#b8b8b8"
+
 
 init 500 python:
 
@@ -709,6 +725,7 @@ init 500 python:
         "livetl_action_text",
         "livetl_status",
         "livetl_menu_item_text",
+        "livetl_find_target",
         "livetl_pick_tip_text",
         "livetl_pick_preview_text",
     ]

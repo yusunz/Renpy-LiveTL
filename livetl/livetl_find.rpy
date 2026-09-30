@@ -28,6 +28,9 @@ init -50 python:
     # 列表行里原文的截断长度（显示字符数）
     _livetl_find_row_chars = 34
 
+    # 命中搜索词时，窗口在匹配前后各留多少个字符（KWIC：关键词在上下文）
+    _livetl_find_context_chars = 16
+
     # 索引缓存：session 里存 (语言, tl 文件 stamp, 条目列表)
     _livetl_find_cache_key = "livetl_find_cache"
 
@@ -239,6 +242,11 @@ init -50 python:
         store.livetl_find_total = len(matched)
         store.livetl_find_results = matched[:_livetl_find_limit]
         store.livetl_find_loaded_index = -1
+
+        # 行文本在这里算好（截断 / 开窗 / 高亮），screen 每帧只读
+        for entry in store.livetl_find_results:
+            _livetl_find_row_prepare(entry, store.livetl_find_query)
+
         livetl_find_save()
 
     def livetl_find_open():
@@ -316,33 +324,152 @@ init -50 python:
 
         return ""
 
-    def livetl_find_row_text(index):
-        """结果列表里某一行的显示文本（截断与转义都在这里做）。
+    def _livetl_find_window(raw, needle, width, context):
+        """以搜索词为中心开窗（KWIC：关键词在上下文）。
 
-        顺序很重要：**先按原文字符截断、再转义**。反过来的话，转义会把
-        `{` 变成 `{{`，截断可能正好切在这对括号中间、留下一个裸 `{` ——
-        Ren'Py 8.3.4 渲染这一行时直接抛 "Open text tag at end of string"，
-        把游戏打崩（真实游戏实测：RoadsYetTraveled）。
+        返回 (显示文本, 匹配区间列表)：
+        * 命中：窗口取"第一个匹配前后各 context 个字符"，被截掉的一侧补 `…`；
+        * 没命中：从开头取 width 个字符（超出时补 `…`），无区间。
+        区间是显示文本里的坐标（已经算上省略号的偏移），供高亮拼接用。
         """
+        raw = raw or ""
+        needle_low = (needle or "").lower()
+        pos = raw.lower().find(needle_low) if needle_low else -1
+
+        if pos < 0:
+            text = raw[:width]
+
+            if len(raw) > width:
+                text += "…"
+
+            return text, []
+
+        start = max(0, pos - context)
+        end = min(len(raw), pos + len(needle_low) + context)
+        text = raw[start:end]
+        low_text = text.lower()
+        needle_len = len(needle_low)
+        spans = []
+        i = 0
+
+        while i <= len(low_text) - needle_len:
+            j = low_text.find(needle_low, i)
+
+            if j < 0:
+                break
+
+            spans.append((j, j + needle_len))
+            i = j + max(1, needle_len)
+
+        left = "…" if start > 0 else ""
+        right = "…" if end < len(raw) else ""
+
+        if left:
+            spans = [(s + len(left), e + len(left)) for (s, e) in spans]
+
+        return left + text + right, spans
+
+    def _livetl_find_highlight(text, spans):
+        """按区间给搜索词包上高亮标签。
+
+        顺序：逐段转义内容、再拼我们自己写的标签 —— 反过来的话标签会被
+        livetl_escape 转义成字面量（面板上直接显示 `{color=...}` 文本）。
+        """
+        if not spans:
+            return livetl_escape(text)
+
+        color = str(livetl_find_highlight_color or "").strip() or "#ffcc66"
+
+        # 配置被改坏时兜底：带 { } 的颜色值会破坏标签
+        if ("{" in color) or ("}" in color):
+            color = "#ffcc66"
+
+        rv = []
+        last = 0
+
+        for start, end in spans:
+            rv.append(livetl_escape(text[last:start]))
+            rv.append("{color=" + color + "}")
+            rv.append(livetl_escape(text[start:end]))
+            rv.append("{/color}")
+            last = end
+
+        rv.append(livetl_escape(text[last:]))
+        return "".join(rv)
+
+    def _livetl_find_row_prepare(entry, query):
+        """把一条结果的"原文行 / 译文行"显示文本算进条目（screen 直接读）。
+
+        有搜索词：命中行以搜索词开窗 + 高亮；没命中的行从开头截断；
+        译文为空的条目第二行留空（只显示原文一行）。
+        没有搜索词（未翻清单）：单行原文，无高亮。
+        """
+        needle = (query or "").strip()
+        source = entry["source"] or entry["key"]
+        source_row = ""
+        target_row = ""
+
+        if needle:
+            text, spans = _livetl_find_window(
+                source, needle, _livetl_find_row_chars, _livetl_find_context_chars,
+            )
+            source_row = _livetl_find_highlight(text, spans)
+
+            if entry["target"]:
+                text, spans = _livetl_find_window(
+                    entry["target"], needle, _livetl_find_row_chars, _livetl_find_context_chars,
+                )
+                target_row = _livetl_find_highlight(text, spans)
+        else:
+            text, spans = _livetl_find_window(
+                source, "", _livetl_find_row_chars, _livetl_find_context_chars,
+            )
+            source_row = _livetl_find_highlight(text, spans)
+
+        if entry["dup"]:
+            source_row += "（重复）"
+
+        entry["row_source"] = source_row
+        entry["row_target"] = target_row
+
+    def _livetl_find_row_entry(index):
+        """结果列表里某一条；下标越界返回 None。"""
         results = store.livetl_find_results
 
         if not (0 <= index < len(results)):
+            return None
+
+        return results[index]
+
+    def livetl_find_row_source(index):
+        """结果列表某行的原文显示文本（预计算过；缺了现算兜底）。"""
+        entry = _livetl_find_row_entry(index)
+
+        if entry is None:
             return ""
 
-        entry = results[index]
-        raw = entry["source"] or entry["key"]
+        if "row_source" not in entry:
+            _livetl_find_row_prepare(entry, store.livetl_find_query)
 
-        if len(raw) > _livetl_find_row_chars:
-            raw = raw[:_livetl_find_row_chars] + "…"
+        return "[[{}] {}".format(index + 1, entry.get("row_source", ""))
 
-        text = livetl_escape(raw)
+    def livetl_find_row_target(index):
+        """结果列表某行的译文显示文本；没有译文时返回 ""（这一行不显示）。"""
+        entry = _livetl_find_row_entry(index)
 
-        note = "已翻" if entry["translated"] else "未翻"
+        if entry is None:
+            return ""
 
-        if entry["dup"]:
-            note += "（重复）"
+        if "row_target" not in entry:
+            _livetl_find_row_prepare(entry, store.livetl_find_query)
 
-        return "[[{}] {} — {}".format(index + 1, text, note)
+        text = entry.get("row_target", "")
+
+        if not text:
+            return ""
+
+        # 缩进两个全角空格：和原文行形成层次
+        return "　　" + text
 
     def livetl_find_hint_text():
         """搜索页顶部的提示行。"""
@@ -415,6 +542,9 @@ init -50 python:
             entry["target"] = target
             entry["target_low"] = target.lower()
             entry["translated"] = bool(target)
+
+        # 译文变了：两行显示也跟着重算
+        _livetl_find_row_prepare(entry, store.livetl_find_query)
 
         # 结果列表与 session 里那份是同一个 list，这里的原地修改本来就已经
         # 落进搜索态；再存一次只是让"state 永远是最新的"这个心智模型成立。

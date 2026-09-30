@@ -130,6 +130,9 @@ init -100 python:
     # 颜色写法一致（#rgb / #rgba / #rrggbb / #rrggbbaa）。
     livetl_input_select_color = "#ffcc6666"
 
+    # 搜索结果里命中关键词的高亮色（写法同上，默认取面板的主题金色）。
+    livetl_find_highlight_color = "#ffcc66"
+
     # 是否显示当前句的翻译标识符（排查问题时有用）。
     livetl_show_id = True
 
