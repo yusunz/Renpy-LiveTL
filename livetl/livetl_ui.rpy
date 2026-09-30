@@ -430,11 +430,9 @@ screen livetl_panel():
                     spacing livetl_px(12)
 
                     if livetl_mode == "find":
-                        textbutton "回当前条" style "livetl_action" action Function(livetl_find_close)
                         text "搜索条目":
                             style "livetl_title"
                     elif livetl_mode == "find_edit":
-                        textbutton "回搜索" style "livetl_action" action Function(livetl_find_back)
                         text "搜索结果":
                             style "livetl_title"
                     else:
@@ -446,6 +444,12 @@ screen livetl_panel():
                         elif livetl_mode == "dup":
                             text "查重体检":
                                 style "livetl_title"
+
+                    # 返回按钮挨着【折叠】放（标题栏右侧）
+                    if livetl_mode == "find":
+                        textbutton "回当前条" style "livetl_action" action Function(livetl_find_close)
+                    elif livetl_mode == "find_edit":
+                        textbutton "回搜索" style "livetl_action" action Function(livetl_find_back)
 
                     textbutton "折叠" style "livetl_action" action Function(livetl_set_visible, False)
 
