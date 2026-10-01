@@ -610,8 +610,12 @@ init -90 python:
                 self.caret_pos = index
                 self.old_caret_pos = index
                 self.update_text(self.content, self.editable)
-            else:
-                renpy.redraw(self, 0)
+
+            # 光标自己不算是"内容变了"：引擎的 Input.update_text() 只在内容
+            # （或 editable、输入法组合）变化时才请求重绘，所以这里必须自己
+            # 说一声 —— 否则改完光标 / 选区画面还停在旧的一帧上（实测：点一下
+            # 原文再按一次 Ctrl+A，模型已经全选，但第二次按下去才画出来）。
+            renpy.redraw(self, 0)
 
         def _livetl_replace_selection(self, text):
             """用 text 换掉当前选区，光标落在替换内容之后。"""
