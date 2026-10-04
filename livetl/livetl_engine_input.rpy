@@ -894,7 +894,7 @@ init -90 python:
 
             * 译者在输入框里自己改的（事件处理中）→ 记进撤销栈；
             * 外面换的（新台词、清空、切到别的条目）→ 收起选区并清空历史，
-              免得 Ctrl+Z 把上一条的译文撤进当前输入框。
+              免得 Ctrl+Z 把上一条的译文撤进当前输入框，并把光标放到末尾。
             """
             if new_content != self.content:
                 if self.restoring:
@@ -906,6 +906,15 @@ init -90 python:
                         self.edit_touched = True
                 else:
                     self.livetl_clear_history()
+
+                    # 换条目：光标归到末尾。必须赶在下面 base 之前改 ——
+                    # base 会用当时的 caret_pos 拼一份"带光标的排版文本"，
+                    # 之后再改 caret_pos 只是改属性、不会重排，画面就停在
+                    # 上一句末尾（引擎的 input_post_per_interact 正是
+                    # "先 update_text、后 caret_pos = len(content)"，
+                    # 8.1.1 / 8.3.4 / 8.5.3 都是这个顺序）。
+                    self.caret_pos = len(new_content)
+                    self.old_caret_pos = self.caret_pos
 
                 if self._livetl_has_selection():
                     self.livetl_clear_selection()
