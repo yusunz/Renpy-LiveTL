@@ -206,6 +206,27 @@ init -90 python:
 
         return rv
 
+    def livetl_engine_block_say_indexes(tid):
+        """块内 Say 节点在代码行里的下标；取不到返回 []。
+
+        Ren'Py 会把 say 前面紧跟的 nvl clear / voice 这类 translatable
+        语句并进同一个 translate 块，写进 tl 文件时每个节点一行、只有 Say
+        那一行的文本会被替换成译文。读取 tl 的人要靠这几个下标找译文，
+        不能按"第一条带引号的行"猜 —— voice 的参数也是带引号的字符串，
+        那样会把它读成译文（见 livetl_core.rpy 的块读取）。
+        """
+        say = _livetl_engine_ast_class("Say")
+        rv = []
+
+        if say is None:
+            return rv
+
+        for i, n in enumerate(_livetl_engine_block_nodes(_livetl_engine_default_node(tid))):
+            if isinstance(n, say):
+                rv.append(i)
+
+        return rv
+
     def livetl_engine_tl_path(language, tid, directory=None):
         """这条译文应当写进哪个 tl 文件；定位不到时返回 None。
 

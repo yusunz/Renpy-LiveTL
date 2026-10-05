@@ -186,11 +186,53 @@ init -50 python:
             return None
         return found[-1].replace('\\"', '"')
 
+    def _livetl_block_say_text(code_lines, tid):
+        """块内代码行里的译文：只看 Say 行，其余行跳过。
+
+        Ren'Py 会把 say 前面紧跟的 nvl clear / voice 这类 translatable 语句
+        并进同一个 translate 块，文件里每个节点一行、只有 Say 行被替换成
+        译文。哪一行是 Say 行由引擎的块节点给出（voice 的参数也是带引号的
+        字符串，按"第一条带引号的行"猜会把它读成译文）。
+
+        引擎里查不到这个块（源里已经删掉的孤儿条目）时没有节点信息可用，
+        退化成"最后一条带引号的代码行"：say 是块里最后一条语句，nvl clear /
+        voice 这类前置语句在它前面。解析不出引号时返回 None。
+        """
+        indexes = livetl_engine_block_say_indexes(tid)
+
+        for index in indexes:
+            if 0 <= index < len(code_lines):
+                value = livetl_parse_quoted(code_lines[index])
+
+                if value is not None:
+                    return value
+
+        if indexes:
+            return None
+
+        for line in reversed(code_lines):
+            value = livetl_parse_quoted(line)
+
+            if value is not None:
+                return value
+
+        return None
+
+    def _livetl_scan_tl_block(rv, tid, code_lines):
+        """扫描时收一个块：能读出译文就记进 rv（读不出就当作没有这条）。"""
+        if tid is None:
+            return
+
+        value = _livetl_block_say_text(code_lines, tid)
+
+        if value is not None:
+            rv[tid] = value
+
     # ---------------------------------------------------------------------
     # tl 文件读写
     # ---------------------------------------------------------------------
 
-    def _livetl_file_block_value(path, header):
+    def _livetl_file_block_value(path, header, tid):
         """一个文件里某个块头的译文："" 是"有这条但译文为空"，None 是没有这条。"""
         try:
             with open(path, "r", encoding="utf-8-sig") as f:
@@ -202,14 +244,22 @@ init -50 python:
             if line.rstrip() != header:
                 continue
 
-            # 块里第一条不是空行、不是注释的行就是译文
+            # 块内代码行：空行、注释行跳过；顶格的非注释行（新块头等）
+            # 说明这个块结束了，不然会把下一个块的内容读进来
+            code_lines = []
+
             for j in range(i + 1, len(lines)):
                 s = lines[j].strip()
+
                 if not s or s.startswith("#"):
                     continue
-                return livetl_parse_quoted(lines[j])
 
-            return None
+                if not lines[j][:1].isspace():
+                    break
+
+                code_lines.append(lines[j])
+
+            return _livetl_block_say_text(code_lines, tid)
 
         return None
 
@@ -271,7 +321,7 @@ init -50 python:
         value = None
 
         for path in livetl_entry_files(language, tid):
-            got = _livetl_file_block_value(path, header)
+            got = _livetl_file_block_value(path, header, tid)
 
             if got is not None:
                 # 后加载的覆盖先加载的
@@ -531,12 +581,16 @@ init -50 python:
                 content = content[1:]
 
             tid = None
+            code_lines = []
 
             for line in content.split("\n"):
                 m = pattern.match(line)
 
                 if m is not None:
+                    # 上一个块收尾；块里没有可读的 Say 行时不算这条
+                    _livetl_scan_tl_block(rv, tid, code_lines)
                     tid = None if (m.group(1) in _livetl_special_translates) else m.group(1)
+                    code_lines = []
                     continue
 
                 if tid is None:
@@ -547,15 +601,18 @@ init -50 python:
                 if (not s) or s.startswith("#"):
                     continue
 
-                # 块里第一条不是空行、不是注释的行就是译文（与
-                # _livetl_file_block_value 同一条规则）；解析不出引号就当
-                # 这个文件没有这条，与单条读取的返回值语义一致。
-                value = livetl_parse_quoted(line)
+                # 顶格的非注释行说明这个块结束了（新块头/文件尾之外的
+                # 顶格内容），把已收集的块收掉
+                if not line[:1].isspace():
+                    _livetl_scan_tl_block(rv, tid, code_lines)
+                    tid = None
+                    code_lines = []
+                    continue
 
-                if value is not None:
-                    rv[tid] = value
+                code_lines.append(line)
 
-                tid = None
+            # 文件结尾收尾
+            _livetl_scan_tl_block(rv, tid, code_lines)
 
         livetl_state_set("livetl_tl_entry_texts", (language, stamp, rv))
         return rv
