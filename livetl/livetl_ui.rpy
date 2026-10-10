@@ -318,6 +318,12 @@ screen livetl_panel():
                         text "LiveTL 翻译模式" style "livetl_title"
                         textbutton "折叠" style "livetl_action" action Function(livetl_set_visible, False)
 
+                        # 项目已补全（选过语言）时给一个"只离开"的出口：挨着【折叠】放，
+                        # 两个都是"离开这一页"的动作；没补全时不显示（点了没用，见
+                        # livetl_setup_can_close()）。
+                        if livetl_setup_can_close():
+                            textbutton "返回" style "livetl_action" action Function(livetl_setup_close)
+
                     text "目标语言（就是 translate 语句里的语言名，例如 schinese、tchinese）：" style "livetl_source"
 
                     # 语言名是引擎身份，目录只是文件位置：填一个新名字会新建
@@ -338,8 +344,6 @@ screen livetl_panel():
                     hbox:
                         spacing livetl_px(10)
                         textbutton "开始翻译" style "livetl_action" action Function(livetl_confirm_language)
-                        if livetl_setup_can_close():
-                            textbutton "返回" style "livetl_action" action Function(livetl_setup_close)
                         textbutton "切回默认" style "livetl_action" action Function(livetl_switch_to_default_language)
                         textbutton "检查重复" style "livetl_action" action Function(livetl_dup_open)
 
