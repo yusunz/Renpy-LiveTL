@@ -200,3 +200,49 @@ init -20 python:
         livetl_state_set("livetl_setup_pending", True)
         store.livetl_visible = True
         livetl_log("open setup")
+
+    def livetl_setup_can_close():
+        """设置界面能不能直接「返回」（不确认语言、不补模板）。
+
+        只有这个项目已经为当前目标语言补全过（tl/<语言>/ 里有
+        .livetl_generated 标记，也就是译者确认过）时才成立 —— 那时设置页
+        是译者自己点【设置】进来的，离开可以只是离开。没补全时设置页是
+        强制问语言的：把 pending 设回 False 也挡不住 livetl_need_setup()，
+        按钮点了界面不会动，所以那种情况不显示（判断在 livetl_ui.rpy）。
+        """
+        return livetl_project_setup_done()
+
+    def livetl_setup_close():
+        """离开设置界面：不写配置、不切语言、不补模板。
+
+        与【开始翻译】的区别：那个会重新解析语言、把游戏切到目标语言，
+        再做一次增量补全 —— 大项目上补全要遍历整个翻译表，会卡一会儿；
+        这个只是回到面板原来的页面（字体、快捷键都是点的时候就已经生效，
+        不需要在这里再确认一次）。补全仍然由启动时的自动补全
+        （livetl_autocomplete_on_start）或下一次点【开始翻译】负责。
+
+        界面动作必须返回 None，否则返回值会被当成交互结果（见 AGENTS.md）。
+        """
+        if not livetl_setup_can_close():
+            # 强制设置页（语言没选过 / 项目没补全）：没有可返回的地方
+            livetl_log("setup close ignored (setup not done)")
+            return None
+
+        store.livetl_setup_pending = False
+        livetl_state_set("livetl_setup_pending", False)
+
+        # 游戏可能停在默认语言（点过【切回默认】）：说清楚，免得译者
+        # 以为"返回之后译文怎么不生效"——返回不切语言，切语言是【开始翻译】
+        if livetl_engine_current_language() != livetl_target_language():
+            livetl_set_status(
+                "已返回，没有补全模板。游戏当前语言：{}；想继续翻译点【开始翻译】".format(
+                    livetl_game_language_text(),
+                ),
+            )
+        else:
+            livetl_set_status("已返回，没有补全模板；要补全点【开始翻译】")
+
+        livetl_log("setup close (no changes)")
+        livetl_restart()
+
+        return None

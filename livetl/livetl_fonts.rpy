@@ -5,9 +5,10 @@
 # 这里用 Ren'Py 自带的 config.font_replacement_map，
 # 把游戏里用到的字体统一映射到 livetl_font（默认是随插件附带的思源黑体简体）。
 #
-# 译者换字体有两条路，两条都落在同一个地方（livetl_config.rpy 的 livetl_font）：
-#   * 把字体文件拖进设置界面（拖放事件见本文件下半部分）
+# 译者换字体有三条路，都落在同一个地方（livetl_config.rpy 的 livetl_font）：
 #   * 在设置界面点【选择字体】，从 livetl/fonts/ 里挑一个
+#   * 把字体文件拖进设置界面（拖放事件见本文件下半部分）
+#   * 点【使用游戏字体】把这一行改回留空（不替换，用游戏原字体）
 # 改配置前会先把原文件备份成 .bak（只保留最近一次）
 #
 # 做法参考 KittyArk/Renpy_fonts_replacement（MIT 许可）。
@@ -108,14 +109,50 @@ init -50 python:
         """当前游戏字体的显示文本（设置界面用）。"""
         return livetl_font or "游戏原字体（没有替换）"
 
+    # ---------------------------------------------------------------------
+    # 替换表：每次调用都从"游戏原表"重建，并把原值记下来
+    #
+    # config.font_replacement_map 不是插件独有的：引擎自己会写（00library.rpy
+    # 给 DejaVuSans 写了粗体映射），个别游戏也会写。所以覆盖之前先把原值
+    # 存一份，切回"游戏原字体"（livetl_font 留空）时要一条条还回去 ——
+    # 只删自己加的键不等于还原，被覆盖过的那些键就丢了。
+    #
+    # 原值记在 session（livetl_state_*）：剧情"回退"回滚不到它，热重载也
+    # 还在（重载会重置 config、再跑一遍 init 100，那时正好靠这份原值把表
+    # 重建回确定的样子）。缺失的键用 None 当哨兵：引擎取表是 .get(t, t)，
+    # 值不会真的存成 None。
+    # ---------------------------------------------------------------------
+
+    def _livetl_font_map_originals():
+        """我们改过的键 → 动手前的原值（None 表示原本没有这个键）。"""
+        return livetl_state_setdefault("livetl_font_map_originals", {})
+
+    def _livetl_font_map_restore():
+        """把替换表还原成插件没动过的样子（对每个我们改过的键）。"""
+        for key, value in _livetl_font_map_originals().items():
+            if value is None:
+                config.font_replacement_map.pop(key, None)
+            else:
+                config.font_replacement_map[key] = value
+
     def livetl_apply_font_replacement():
         """把游戏用到的字体全部映射到 livetl_font。
 
-        返回被替换的字体数量；livetl_font 留空、或字体文件不存在时不做替换。
+        返回被替换的字体数量。livetl_font 留空时把替换表还原成游戏原表
+        （返回 0）；字体文件不存在时同样还原（不然游戏会因为找不到字体
+        起不来，但也不该留着上一次的映射）。
+
+        每次调用都是"先还原、再按当前 target 重写"，不层叠：从一个字体
+        切到另一个时，旧 target 自己的那几个键（新 target 会跳过不写）
+        不会残留在表里。
         """
+        # 先还原：确保表里只剩游戏自己的条目（原本缺失的键删掉）
+        _livetl_font_map_restore()
+
         target = livetl_font
 
         if not target:
+            livetl_log("font replacement cleared (game fonts)")
             return 0
 
         # 字体文件不存在就跳过（不然游戏会因为找不到字体起不来）
@@ -124,6 +161,7 @@ init -50 python:
             return 0
 
         fonts = livetl_collect_fonts()
+        originals = _livetl_font_map_originals()
 
         count = 0
 
@@ -138,7 +176,14 @@ init -50 python:
             # （按字号膨胀位图的伪粗体），所以 bold / italic 原样透传。
             for is_bold in (False, True):
                 for italic in (False, True):
-                    config.font_replacement_map[old_font, is_bold, italic] = (target, is_bold, italic)
+                    key = (old_font, is_bold, italic)
+
+                    # 原值只记一次：不管切几次字体、重扫几次替换表，
+                    # 还回去的都是"插件碰它之前"的那一份
+                    if key not in originals:
+                        originals[key] = config.font_replacement_map.get(key, None)
+
+                    config.font_replacement_map[key] = (target, is_bold, italic)
 
             count += 1
 
@@ -355,6 +400,40 @@ init -50 python:
 
         livetl_set_status("字体已换成 {}{}".format(rel_path, note))
         livetl_log("font switched: {!r} {}".format(rel_path, note))
+
+        return True
+
+    def livetl_font_use_game(path=None):
+        """切回游戏原字体：配置里 livetl_font 写成空，替换表还原、立即生效。
+
+        `path` 是给测试用的口子（改配置那一步），正常调用不用传。
+        与 livetl_font_use 是同一套写法：配置写不动也要让本次运行先用回
+        游戏原字体；session 里记 `""` 而不是清掉 —— clear 掉的话，一次
+        "回退（Back）"就会把配置里的旧字体镜像回 store。
+        """
+        if not livetl_font:
+            livetl_set_status("已经是游戏原字体（livetl_font 留空），没有改动")
+            return False
+
+        backup, error = livetl_config_set_font("", path=path)
+
+        # 配置改不了也要让这次运行先用回游戏原字体
+        store.livetl_font = ""
+        # 译者的选择另外记一份：剧情"回退（Back）"不会把它带走
+        livetl_setting_set("font", "")
+        livetl_font_apply_now()
+
+        notes = []
+
+        if error:
+            notes.append("配置没改：{}".format(error))
+        elif backup:
+            notes.append("已备份 {}".format(backup))
+
+        note = "（{}）".format("；".join(notes)) if notes else ""
+
+        livetl_set_status("已改回游戏原字体（livetl_font 留空）{}".format(note))
+        livetl_log("font switched to game fonts {}".format(note))
 
         return True
 

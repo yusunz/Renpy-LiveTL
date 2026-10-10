@@ -202,6 +202,11 @@ init python:
         store.livetl_font_panel_open = False
         livetl_font_use(rel_path)
 
+    def livetl_font_choose_game():
+        """【使用游戏字体】：收起字体列表 + 把 livetl_font 改回留空。"""
+        store.livetl_font_panel_open = False
+        livetl_font_use_game()
+
     def livetl_font_choice_text(choice):
         """字体列表里一行的显示文字。
 
@@ -333,6 +338,8 @@ screen livetl_panel():
                     hbox:
                         spacing livetl_px(10)
                         textbutton "开始翻译" style "livetl_action" action Function(livetl_confirm_language)
+                        if livetl_setup_can_close():
+                            textbutton "返回" style "livetl_action" action Function(livetl_setup_close)
                         textbutton "切回默认" style "livetl_action" action Function(livetl_switch_to_default_language)
                         textbutton "检查重复" style "livetl_action" action Function(livetl_dup_open)
 
@@ -352,6 +359,12 @@ screen livetl_panel():
                         textbutton ("收起字体列表" if livetl_font_panel_open else "选择字体"):
                             style "livetl_action"
                             action Function(livetl_font_panel_toggle)
+
+                        # 改回游戏自带字体：配置里 livetl_font 写空，替换表还原
+                        textbutton "使用游戏字体":
+                            style "livetl_action"
+                            selected (not livetl_font)
+                            action Function(livetl_font_choose_game)
 
                     if livetl_font_panel_open:
 
