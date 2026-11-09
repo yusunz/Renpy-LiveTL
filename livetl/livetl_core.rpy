@@ -179,89 +179,9 @@ init -50 python:
         """当前台词的翻译标识符；不在台词上时返回 None。"""
         return livetl_engine_current_tid()
 
-    def livetl_parse_quoted(code_line):
-        """从一行台词代码里取出引号中的文本；取不到时返回 None。"""
-        found = re.findall(r'"((?:[^"\\]|\\.)*)"', code_line)
-        if not found:
-            return None
-        return found[-1].replace('\\"', '"')
-
-    def _livetl_block_say_text(code_lines, tid):
-        """块内代码行里的译文：只看 Say 行，其余行跳过。
-
-        Ren'Py 会把 say 前面紧跟的 nvl clear / voice 这类 translatable 语句
-        并进同一个 translate 块，文件里每个节点一行、只有 Say 行被替换成
-        译文。哪一行是 Say 行由引擎的块节点给出（voice 的参数也是带引号的
-        字符串，按"第一条带引号的行"猜会把它读成译文）。
-
-        引擎里查不到这个块（源里已经删掉的孤儿条目）时没有节点信息可用，
-        退化成"最后一条带引号的代码行"：say 是块里最后一条语句，nvl clear /
-        voice 这类前置语句在它前面。解析不出引号时返回 None。
-        """
-        indexes = livetl_engine_block_say_indexes(tid)
-
-        for index in indexes:
-            if 0 <= index < len(code_lines):
-                value = livetl_parse_quoted(code_lines[index])
-
-                if value is not None:
-                    return value
-
-        if indexes:
-            return None
-
-        for line in reversed(code_lines):
-            value = livetl_parse_quoted(line)
-
-            if value is not None:
-                return value
-
-        return None
-
-    def _livetl_scan_tl_block(rv, tid, code_lines):
-        """扫描时收一个块：能读出译文就记进 rv（读不出就当作没有这条）。"""
-        if tid is None:
-            return
-
-        value = _livetl_block_say_text(code_lines, tid)
-
-        if value is not None:
-            rv[tid] = value
-
     # ---------------------------------------------------------------------
     # tl 文件读写
     # ---------------------------------------------------------------------
-
-    def _livetl_file_block_value(path, header, tid):
-        """一个文件里某个块头的译文："" 是"有这条但译文为空"，None 是没有这条。"""
-        try:
-            with open(path, "r", encoding="utf-8-sig") as f:
-                lines = f.read().split("\n")
-        except Exception:
-            return None
-
-        for i, line in enumerate(lines):
-            if line.rstrip() != header:
-                continue
-
-            # 块内代码行：空行、注释行跳过；顶格的非注释行（新块头等）
-            # 说明这个块结束了，不然会把下一个块的内容读进来
-            code_lines = []
-
-            for j in range(i + 1, len(lines)):
-                s = lines[j].strip()
-
-                if not s or s.startswith("#"):
-                    continue
-
-                if not lines[j][:1].isspace():
-                    break
-
-                code_lines.append(lines[j])
-
-            return _livetl_block_say_text(code_lines, tid)
-
-        return None
 
     def _livetl_file_has_block(path, header):
         """文件里有没有这个块头（文件不在、读不了都算没有）。"""
@@ -309,25 +229,88 @@ init -50 python:
 
         return sorted(rv)
 
-    def livetl_read_entry(language, tid):
-        """读取这一句已有的译文；文件或条目不存在时返回 None。
+    _livetl_pending_entry_texts_key = "livetl_pending_entry_texts"
 
-        同一个语言散在多个目录里时，引擎按加载顺序取最后一份，这里也一样。
+    def _livetl_pending_entry_key(language, tid):
+        """写后覆盖值的键：语言与标识符都要先归一化。"""
+        return (str(language or ""), str(tid or "").replace(".", "_"))
+
+    def _livetl_pending_entry_set(language, tid, text, path):
+        """记住刚写进文件的值，直到重载或文件被外部改动。
+
+        引擎只在脚本加载时把 tl 文件读进 AST。一次提交之后、点击重载之前，
+        AST 仍然是旧值；输入框已经显示新值，而搜索和直接读回也应看到同一份
+        结果，所以这里保存一个带文件时间戳的覆盖值。它不是第二套文本语义，
+        重载后立即撤掉，权威来源重新回到 AST。
+        """
+        entries = dict(livetl_state_get(_livetl_pending_entry_texts_key, {}) or {})
+        key = _livetl_pending_entry_key(language, tid)
+
+        try:
+            stat = os.stat(path)
+            stamp = (int(stat.st_mtime_ns), stat.st_size)
+        except Exception:
+            stamp = None
+
+        entries[key] = (text, path, stamp)
+        livetl_state_set(_livetl_pending_entry_texts_key, entries)
+
+    def _livetl_pending_entry_get(language, tid):
+        """取写后覆盖值；文件已变化时丢弃过期缓存并返回 None。"""
+        entries = dict(livetl_state_get(_livetl_pending_entry_texts_key, {}) or {})
+        key = _livetl_pending_entry_key(language, tid)
+        entry = entries.get(key)
+
+        if entry is None:
+            return None
+
+        text, path, stamp = entry
+
+        if stamp is None:
+            return text
+
+        try:
+            stat = os.stat(path)
+            current = (int(stat.st_mtime_ns), stat.st_size)
+        except Exception:
+            current = None
+
+        if current == stamp:
+            return text
+
+        entries.pop(key, None)
+        livetl_state_set(_livetl_pending_entry_texts_key, entries)
+        return None
+
+    def livetl_pending_entry_texts_clear():
+        """撤掉所有写后覆盖值；脚本重载后由 AST 接管。"""
+        livetl_state_pop(_livetl_pending_entry_texts_key, None)
+
+    def livetl_read_entry(language, tid):
+        """读取当前实际生效的译文；未登记且没有写后覆盖时返回 None。
+
+        读取顺序：
+
+          * 本次运行刚写进文件、尚未重载的值；
+          * 引擎已加载的 AST 中 `Say.what`。
+
+        不从源码行推断正文：字符串说话人和 `(color="...")` 等参数不会
+        被误当成译文；磁盘上尚未加载的块也不冒充当前生效值。
         """
         resolved, _directory, _note = livetl_resolve_language(language)
         language = resolved or str(language or "")
 
-        header = "translate {} {}:".format(language, tid.replace(".", "_"))
-        value = None
+        pending = _livetl_pending_entry_get(language, tid)
 
-        for path in livetl_entry_files(language, tid):
-            got = _livetl_file_block_value(path, header, tid)
+        if pending is not None:
+            return pending
 
-            if got is not None:
-                # 后加载的覆盖先加载的
-                value = got
+        value = livetl_engine_translation_text(language, tid)
 
-        return value
+        if value is not None:
+            return value
+
+        return None
 
     def livetl_write_entry(language, tid, text):
         """把译文写回 tl 文件中的这一条；文件里其它内容保持原样。
@@ -354,7 +337,12 @@ init -50 python:
             return None
 
         if not paths:
-            return livetl_append_block(path, language, tid, text)
+            written = livetl_append_block(path, language, tid, text)
+
+            if written:
+                _livetl_pending_entry_set(language, tid, text, written)
+
+            return written
 
         header = "translate {} {}:".format(language, tid.replace(".", "_"))
         new_lines = livetl_engine_block_code(tid, text)
@@ -391,6 +379,7 @@ init -50 python:
 
         if written:
             livetl_log("write_entry: {} <- {!r}".format(tid, text))
+            _livetl_pending_entry_set(language, tid, text, written)
 
         return written
 
@@ -537,95 +526,39 @@ init -50 python:
         return set(livetl_scan_tl_entry_files(language).keys())
 
     def livetl_scan_tl_entry_texts(language=None, force=False):
-        """扫描这个语言的台词块：{标识符: 译文}（块里没写译文行时是空串）。
+        """这个语言实际生效的台词译文：{标识符: Say.what, ...}。
 
-        与 livetl_read_entry 同一套语义：同一个标识符在多个文件里都有时，
-        按加载顺序后来居上（引擎的登记就是一次覆盖赋值）。只认
-        `translate <语言> <标识符>:` 台词块，不碰 strings / python / style。
-        结果缓存在 session（键里带各文件的 mtime/size），插件写完文件后由
-        livetl_invalidate_tl_indexes() 作废。
-
-        给条目搜索用：几万个标识符逐条走 livetl_read_entry 会把每个文件
-        反复读很多遍，这里一次全读出来。
+        `force` 为兼容旧调用保留；AST 表本身不需要 mtime 缓存。本次刚写入、
+        尚未重载的值会用 session 里的短期覆盖值补上，保证“写一条、搜一条”
+        能立刻看到新内容。
         """
         if language is None:
             language = livetl_target_language()
 
-        files = livetl_iter_tl_files(language)
-        stamp = []
+        rv = dict(livetl_engine_translation_texts(language))
 
-        for path in files:
-            try:
-                st = os.stat(path)
-                stamp.append((path, int(st.st_mtime), st.st_size))
-            except Exception:
-                pass
+        entries = livetl_state_get(_livetl_pending_entry_texts_key, {}) or {}
 
-        cached = livetl_state_get("livetl_tl_entry_texts")
-
-        if (not force) and cached and (cached[0] == language) and (cached[1] == stamp):
-            return cached[2]
-
-        pattern = re.compile(r"^\s*translate\s+" + re.escape(str(language)) + r"\s+(\S+)\s*:\s*$")
-        rv = {}
-
-        for path in files:
-            try:
-                # 用 utf-8 读、手动去掉 BOM：不依赖 utf-8-sig（部分环境没有）
-                with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-            except Exception:
+        for (entry_language, entry_tid), _entry in list(entries.items()):
+            if entry_language != language:
                 continue
 
-            if content.startswith("\ufeff"):
-                content = content[1:]
+            value = _livetl_pending_entry_get(language, entry_tid)
 
-            tid = None
-            code_lines = []
+            if value is not None:
+                rv[entry_tid] = value
 
-            for line in content.split("\n"):
-                m = pattern.match(line)
-
-                if m is not None:
-                    # 上一个块收尾；块里没有可读的 Say 行时不算这条
-                    _livetl_scan_tl_block(rv, tid, code_lines)
-                    tid = None if (m.group(1) in _livetl_special_translates) else m.group(1)
-                    code_lines = []
-                    continue
-
-                if tid is None:
-                    continue
-
-                s = line.strip()
-
-                if (not s) or s.startswith("#"):
-                    continue
-
-                # 顶格的非注释行说明这个块结束了（新块头/文件尾之外的
-                # 顶格内容），把已收集的块收掉
-                if not line[:1].isspace():
-                    _livetl_scan_tl_block(rv, tid, code_lines)
-                    tid = None
-                    code_lines = []
-                    continue
-
-                code_lines.append(line)
-
-            # 文件结尾收尾
-            _livetl_scan_tl_block(rv, tid, code_lines)
-
-        livetl_state_set("livetl_tl_entry_texts", (language, stamp, rv))
         return rv
 
     def livetl_invalidate_tl_indexes():
         """写回 / 生成 / 清理之后把 tl 相关的缓存全部作废。
 
-        语言索引（哪些语言在哪些目录里）、台词 → 文件、台词 → 译文、字符串
-        索引，四份都是从 tl 文件读出来的，改了文件就必须重建。
+        语言索引（哪些语言在哪些目录里）、台词 → 文件、字符串索引，这三份
+        都是从 tl 文件读出来的，改了文件就必须重建。台词文本来自 AST 和
+        session 写后值，不在这里缓存。
         """
         livetl_invalidate_language_index()
         livetl_state_pop("livetl_tl_entry_files", None)
-        livetl_state_pop("livetl_tl_entry_texts", None)
         livetl_invalidate_string_index()
 
     def livetl_count_tl_entries(language=None):
@@ -867,6 +800,8 @@ init -50 python:
         交互开始时跳回这一句，用新译文重新渲染。
         """
         livetl_state_set("livetl_replay_tid", livetl_current_id())
+        livetl_pending_entry_texts_clear()
+        livetl_find_invalidate()
         livetl_log("reload_script() tid={!r}".format(livetl_state_get("livetl_replay_tid")))
         renpy.reload_script()
 

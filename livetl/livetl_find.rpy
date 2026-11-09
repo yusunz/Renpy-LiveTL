@@ -7,7 +7,7 @@
 #
 # 数据来源是"引擎里的全部条目"，不是 tl 文件里已有的条目：
 #   * 台词   —— 内存脚本里每个要翻译的标识符 + 原文 + 源码位置，
-#               译文从 tl 文件批量解析（livetl_scan_tl_entry_texts）；
+#               译文取已加载 AST 的 Say.what（livetl_scan_tl_entry_texts）；
 #   * 字符串 —— livetl_strings.rpy 的字符串索引（原文 / 译文 / 重复都在）。
 # 所以还没生成模板的条目也搜得到（"找没翻的"能成立的前提）。
 #

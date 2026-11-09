@@ -106,6 +106,29 @@ init -90 python:
 
         return list(getattr(node, "block", None) or [])
 
+    def _livetl_engine_node_say_text(node):
+        """从翻译节点里取第一条 Say 的纯文本；没有 Say 时返回 None。
+
+        `what` 是引擎解析字符串后的语义值，说话人、属性和参数都各有独立
+        字段。这里不重新解析源码行，所以 `(color="#84BAEA")` 不会混进译文。
+        """
+        say = _livetl_engine_ast_class("Say")
+
+        if say is None:
+            return None
+
+        for child in _livetl_engine_block_nodes(node):
+            if not isinstance(child, say):
+                continue
+
+            try:
+                return child.what
+            except Exception as e:
+                livetl_engine_note_error("node_say_text", e)
+                return None
+
+        return None
+
     def _livetl_engine_string_table(language):
         """引擎里这个语言的字符串翻译表；取不到返回 None。
 
@@ -169,16 +192,58 @@ init -90 python:
 
     def livetl_engine_source_text(tid):
         """这条 tid 的原文；取不到返回 None。"""
-        say = _livetl_engine_ast_class("Say")
+        return _livetl_engine_node_say_text(_livetl_engine_default_node(tid))
 
-        if say is None:
+    def livetl_engine_translation_text(language, tid):
+        """这条台词在指定语言下已加载的译文；没有登记时返回 None。
+
+        这是面板和搜索的主数据源。它读取的是引擎实际登记的翻译节点，
+        与游戏当前显示的文本遵循同一套 AST 语义；文件里存在但尚未加载、
+        或已被后加载文件覆盖的块不会误当成当前译文。
+        """
+        translator = _livetl_engine_translator()
+
+        if (translator is None) or not tid or (language is None):
             return None
 
-        for n in _livetl_engine_block_nodes(_livetl_engine_default_node(tid)):
-            if isinstance(n, say):
-                return n.what
+        try:
+            key = str(tid).replace(".", "_")
+            node = translator.language_translates.get((key, language))
+        except Exception as e:
+            livetl_engine_note_error("translation_text/table", e)
+            return None
 
-        return None
+        return _livetl_engine_node_say_text(node)
+
+    def livetl_engine_translation_texts(language):
+        """这个语言全部已加载台词的译文：{标识符: Say.what, ...}。
+
+        一次遍历引擎翻译表，避免搜索为几万个标识符逐条进 AST。表里后加载
+        的文件已经覆盖先加载的文件，所以同一个 tid 只需要取当前登记值。
+        """
+        translator = _livetl_engine_translator()
+
+        if (translator is None) or (language is None):
+            return {}
+
+        try:
+            items = list(translator.language_translates.items())
+        except Exception as e:
+            livetl_engine_note_error("translation_texts/table", e)
+            return {}
+
+        rv = {}
+
+        for (identifier, node_language), node in items:
+            if node_language != language:
+                continue
+
+            value = _livetl_engine_node_say_text(node)
+
+            if value is not None:
+                rv[identifier] = value
+
+        return rv
 
     def livetl_engine_source_location(tid):
         """这条 tid 在源码里的位置 (文件名, 行号)；取不到返回 (None, None)。"""
