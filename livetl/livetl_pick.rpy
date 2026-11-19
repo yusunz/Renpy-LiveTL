@@ -13,6 +13,7 @@
 
 init -50 python:
     import os
+    import re
 
     # 拾取模式是否开启（放 session：热重载与"回退"都不丢）
     livetl_pick_active = livetl_state_setdefault("livetl_pick_active", False)
@@ -36,6 +37,64 @@ init -50 python:
             return False
 
         return ("/livetl/" in fn) or fn.startswith("livetl/")
+
+    def livetl_pick_text_key(text):
+        """比较用的文本键：去掉文本标签与首尾空白。
+
+        画面上拾取到的是 Text.text_parameter（= 游戏实际显示的文本），目标语言下
+        它已经是译文；而 say 的原文里还带着 {w=0.8} 这类标签。判断"是不是同一句"
+        时去掉标签、比较可见文字即可。
+        """
+        try:
+            text = re.sub(r"\{[^{}]*\}", "", str(text or ""))
+        except Exception:
+            text = str(text or "")
+
+        return text.strip()
+
+    def livetl_pick_same_text(a, b):
+        """两段文本是不是同一句（原文 / 译文 / 画面文本之间比较用）。"""
+        if not a or not b:
+            return False
+
+        if a == b:
+            return True
+
+        ka = livetl_pick_text_key(a)
+        kb = livetl_pick_text_key(b)
+
+        return bool(ka) and (ka == kb)
+
+    def livetl_pick_resolve(text):
+        """把画面上的文本解析成可翻译条目：返回 (kind, source, payload)。
+
+        kind 为 "say"（payload = tid）或 "menu"（payload = 菜单下标）；认不出时返回
+        None。画面显示的是目标语言文本，所以必须把**原文和当前语言译文**都拿来比：
+        只比原文会让"拾取当前这句已翻译的对话"落进界面字符串分支，原文行被填成译文
+        （8.5.3 / 8.6.1 实测的 bug）。菜单条目同理要比 caption 与已有译文。
+        """
+        if not text:
+            return None
+
+        tid = livetl_current_id()
+        source = livetl_engine_source_text(tid)
+
+        if source:
+            translated = None
+            language = livetl_engine_current_language()
+
+            if language:
+                translated = livetl_engine_translation_text(language, tid)
+
+            if livetl_pick_same_text(source, text) or livetl_pick_same_text(translated, text):
+                return ("say", source, tid)
+
+        for i, item in enumerate(store.livetl_menu_items):
+            if livetl_pick_same_text(item.get("caption"), text) \
+                    or livetl_pick_same_text(item.get("new"), text):
+                return ("menu", item.get("caption") or text, i)
+
+        return None
 
     def livetl_pick_raw(x, y):
         """鼠标下的原始元素链（未过滤），每项是 (depth, w, h, displayable)。"""
@@ -186,11 +245,11 @@ init -50 python:
 
             return
 
-        # 对话文本：提醒走对话模式（say 的翻译由 translate 块负责）
-        tid = livetl_current_id()
-        source = livetl_engine_source_text(tid)
+        # 先判断是不是"当前这句对话 / 当前菜单里的某一条"：画面显示的是
+        # 目标语言文本，原文/译文都要拿来比（见 livetl_pick_resolve）。
+        resolved = livetl_pick_resolve(text)
 
-        if source and (source == text):
+        if resolved and (resolved[0] == "say"):
             livetl_pick_set_active(False)
 
             # 菜单还开着时别让菜单同步把面板抢回列表：
@@ -206,15 +265,13 @@ init -50 python:
             livetl_set_status("这是对话文本，已在面板里打开；点【回菜单】回到菜单列表")
             return
 
-        # 命中当前菜单里的某一条：直接选中它，面板保持菜单列表
-        for i, item in enumerate(store.livetl_menu_items):
-            if item["caption"] == text:
-                store.livetl_menu_index = i
-                store.livetl_mode = "menu"
-                livetl_menu_fill()
-                livetl_pick_set_active(False)
-                livetl_set_status("已拾取菜单里的第 {} 条".format(i + 1))
-                return
+        if resolved and (resolved[0] == "menu"):
+            store.livetl_menu_index = resolved[2]
+            store.livetl_mode = "menu"
+            livetl_menu_fill()
+            livetl_pick_set_active(False)
+            livetl_set_status("已拾取菜单里的第 {} 条".format(resolved[2] + 1))
+            return
 
         # 其它字符串条目：单条编辑模式
         index = livetl_scan_string_index()
@@ -254,6 +311,14 @@ init -50 python:
             return
 
         text, location = livetl_pick_probe(x, y)
+
+        # 预览也显示"能翻译的那一面"：当前台词/菜单条目在目标语言下画面是译文，
+        # 这里换回原文再显示，和拾取后落进面板的内容一致。
+        resolved = livetl_pick_resolve(text)
+
+        if resolved:
+            text = resolved[1]
+
         text = text or ""
 
         if text != store.livetl_pick_preview:
