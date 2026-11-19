@@ -742,8 +742,8 @@ style livetl_find_target is default:
 # 8.6 起 Windows 上引擎自己画 IME 候选（_ime_candidates 屏），不再用系统
 # 候选窗；它默认是黑底 + 系统字体，紧贴输入框下方，压在面板按钮行上很突兀。
 # 文档只承诺这些样式可定制（doc/input.html「Input Methods」）：这里把配色、
-# 内外边距和选中底色对齐面板、把占地方压小；**字号保持引擎默认的 22 虚拟
-# 像素**（不随画布缩放，可读性优先）。字体在 init 500 里跟随面板字体。
+# 内外边距和选中底色对齐面板、把占地方压小；字号跟面板缩放走（下限 22，
+# 见下面的说明）。字体在 init 500 里跟随面板字体。
 # 老引擎没有这个屏，样式块只是多定义几个没人用的样式，无副作用。
 # ---------------------------------------------------------------------
 
@@ -762,10 +762,10 @@ style _ime_candidates_selected_item_frame:
     background "#ffcc6640"
 
 style _ime_candidates_text:
-    # 可读性优先：用引擎默认的 22 虚拟像素并固定不随画布缩放（引擎本身也是
-    # 固定 22）。早先按面板比例写 livetl_px(18)，720p 下只有 12px，候选词
-    # 看不清；减少遮挡改由下面的 padding / spacing / 选中底色负责。
-    size 22
+    # 字号跟面板缩放走（livetl_ui_scale / 画布高度），与面板文字保持一致：
+    # 1080p 基准是 22（引擎默认字号）；低于 1080p 保底 22（早先按比例缩到
+    # 720p 只有 12px，候选词看不清），4K（2160p）等大画布按比例放大到 44。
+    size int(max(22, livetl_px(22)))
     color "#ffffff"
 
 style _ime_candidates_selected_text:
