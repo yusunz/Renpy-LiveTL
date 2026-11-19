@@ -390,31 +390,54 @@ init -50 python:
             _livetl_hotkey_ime_restore()
 
     def _livetl_hotkey_ime_mute():
-        """改键期间关掉系统文本输入：输入法不再收按键，候选条就不会出现。
+        """改键期间抑制系统文本输入：输入法不再收按键，候选条就不会出现。
 
         这是"预防"：等候选条出来再取消（0.2.7 试过）在部分输入法上无效 ——
-        它们不理文本输入的开关已经晚了；不开就根本不会有。离开改键时开回来。
+        它们不理文本输入的开关已经晚了；不开就根本不会有。离开改键时恢复。
+
+        具体做法见适配层的"系统文本输入抑制"（
+        `livetl_engine_input_text_input_suppressed` 那组函数）：不在这一层
+        直接 stop/start 系统输入，而是让输入控件停止上报"活动输入框"标记，
+        引擎自己会关掉并保持（8.6 每次绘制后重开会覆盖一次性 stop）。
         """
         if not getattr(store, "livetl_mute_ime_while_binding", True):
             return
 
-        if livetl_state_get("livetl_hotkey_ime_muted"):
+        # 两个条件都满足才算真的静音着：热重载后 session 标记还在、但引擎侧
+        # 的抑制状态已随 init 重置，这时要补齐而不是直接 return。
+        if livetl_state_get("livetl_hotkey_ime_muted") and livetl_engine_input_text_input_suppressed():
             return
 
         if livetl_engine_input_text_input_stop():
             livetl_state_set("livetl_hotkey_ime_muted", True)
         else:
-            livetl_log("hotkey: 关掉系统文本输入失败（见 engine seam 错误）")
+            livetl_log("hotkey: 抑制系统文本输入失败（见 engine seam 错误）")
 
     def _livetl_hotkey_ime_restore():
-        """离开改键：把系统文本输入开回来（之后照常打中文）。"""
-        if not livetl_state_get("livetl_hotkey_ime_muted"):
+        """离开改键：取消抑制，引擎下一次绘制后自己把文本输入开回来。"""
+        if (not livetl_state_get("livetl_hotkey_ime_muted")) and (not livetl_engine_input_text_input_suppressed()):
             return
 
         livetl_state_set("livetl_hotkey_ime_muted", False)
 
         if not livetl_engine_input_text_input_start():
-            livetl_log("hotkey: 开回系统文本输入失败（见 engine seam 错误）")
+            livetl_log("hotkey: 恢复系统文本输入失败（见 engine seam 错误）")
+
+    def livetl_hotkey_capture_ime_sync():
+        """把"捕获态 ↔ 输入法抑制"拉齐；每帧调一次，幂等。
+
+        捕获态是界面状态（放进 session）：可能跨热重载、被折叠 / 切拾取 /
+        退出设置页打断，只靠进入 / 离开各调一次的话，状态一漂就会出现
+        "捕获时输入法没关住"或"退出后输入法还被关着"。这里只比较捕获动作
+        与抑制状态，没变化时开销就是两次 bool 判断。
+        """
+        if not getattr(store, "livetl_mute_ime_while_binding", True):
+            return
+
+        if livetl_hotkey_capture_action():
+            _livetl_hotkey_ime_mute()
+        else:
+            _livetl_hotkey_ime_restore()
 
     def livetl_hotkey_capture_poll():
         """每帧看一眼捕获层还在不在界面上，不在就结束捕获。
@@ -422,7 +445,12 @@ init -50 python:
         按键只送给渲染树里的 displayable：面板一旦被折叠（或切到拾取层），
         捕获层就不在树上了，这个捕获态再没人收尾，会在下次打开设置页时
         突然接着等。这里按界面事实对齐。
+
+        先做输入法抑制的对齐（见 livetl_hotkey_capture_ime_sync 的说明），
+        再做"捕获层还在不在"的界面检查。
         """
+        livetl_hotkey_capture_ime_sync()
+
         if not livetl_hotkey_capture_action():
             return
 

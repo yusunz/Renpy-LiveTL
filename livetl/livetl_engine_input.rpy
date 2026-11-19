@@ -927,6 +927,13 @@ init -90 python:
                 self, max(0, width - offset), height, st, at,
             )
 
+            # 改键捕获期间不上报"这是活动文本输入"：引擎据此认为没有输入框
+            # 在收字，会自己把系统文本输入关掉并保持（见下面 seam 的说明）。
+            suppressed = livetl_engine_input_text_input_suppressed()
+
+            if suppressed:
+                rv.text_input = False
+
             # 记住自己占的那一行（宽用父容器给的宽度：面板里整行都能点）
             self.row_size = (width, rv.height)
 
@@ -954,6 +961,10 @@ init -90 python:
                 out.blit(patch, (0, 0))
 
             out.blit(rv, (offset, 0))
+
+            # 包了一层 Render 时要把输入标记原样带出去（引擎看的是最终返回的
+            # Render；漏掉这个标记会被当成"没有活动输入框"）。
+            out.text_input = False if suppressed else getattr(rv, "text_input", False)
 
             return out
 
@@ -1198,36 +1209,57 @@ init -90 python:
             livetl_engine_note_error("input/clipboard", e)
             return False
 
-    def livetl_engine_input_text_input_stop():
-        """关掉系统文本输入（输入法不再收按键）；成功返回 True。
+    # ---------------------------------------------------------------------
+    # 系统文本输入（输入法）的抑制
+    #
+    # 改键捕获期间要让中文输入法别再收按键（否则 Shift+字母 会被它当打字吞掉，
+    # 候选条也会挂在面板上）。8.5 及以前直接调 pygame.key.stop_text_input()
+    # 关一次就够；8.6 起引擎的 Interface.update_text_rect() 改成"只要还有活动
+    # 输入框且系统文本输入没开，就每次绘制后重新 start_text_input()"，一次
+    # stop 会被覆盖（实测 8.6.1 捕获态过 0.5s 就又被打开）。
+    #
+    # 这里改用引擎自己的判断依据：Input.render() 只在 editable 时给返回的
+    # Render 置 text_input=True；引擎看整个渲染树里有没有这个标记来决定
+    # text_rect / start / stop。所以捕获期间让控件不上报这个标记即可 ——
+    # 引擎会自己 stop_text_input() 并保持关闭，恢复后自己再 start。
+    # 8.1.1 / 8.5.3 / 8.6.1 的 update_text_rect() 都是这套逻辑。
+    # ---------------------------------------------------------------------
 
-        改键时用：关掉之后按键直接给游戏，中文输入法不会把 Shift+字母 收进候选条
-        （那一步在引擎之前，插件拦不住，只能预防）。
-        """
-        try:
-            import pygame
+    _livetl_engine_input_text_input_suppressed = False
 
-            pygame.key.stop_text_input()
-        except Exception as e:
-            livetl_engine_note_error("input/text_input_stop", e)
-            return False
+    def livetl_engine_input_text_input_suppressed():
+        """改键捕获期间是否在抑制系统文本输入。"""
+        return bool(_livetl_engine_input_text_input_suppressed)
+
+    def _livetl_engine_input_text_input_redraw():
+        """抑制状态变了：让现存输入控件下一帧重画，带上新的 text_input 标记。"""
+        for _value, widget in list(_livetl_engine_input_widgets):
+            try:
+                renpy.redraw(widget, 0)
+            except Exception as e:
+                livetl_engine_note_error("input/text_input_redraw", e)
+
+    def livetl_engine_input_text_input_suppress(active):
+        """设置 / 取消系统文本输入抑制；幂等，成功返回 True。"""
+        global _livetl_engine_input_text_input_suppressed
+
+        active = bool(active)
+
+        if active == _livetl_engine_input_text_input_suppressed:
+            return True
+
+        _livetl_engine_input_text_input_suppressed = active
+        _livetl_engine_input_text_input_redraw()
 
         return True
+
+    def livetl_engine_input_text_input_stop():
+        """改键期间抑制系统文本输入（输入法不再收按键）；成功返回 True。"""
+        return livetl_engine_input_text_input_suppress(True)
 
     def livetl_engine_input_text_input_start():
-        """把系统文本输入开回来（改键结束、继续打中文用）；成功返回 True。
-
-        引擎只在"输入框刚出现"时调用 start_text_input()，所以这一步得自己调。
-        """
-        try:
-            import pygame
-
-            pygame.key.start_text_input()
-        except Exception as e:
-            livetl_engine_note_error("input/text_input_start", e)
-            return False
-
-        return True
+        """改键结束：取消抑制，引擎会在下一次绘制后自己开回文本输入。"""
+        return livetl_engine_input_text_input_suppress(False)
 
     def livetl_engine_input_widget(value, length, select_color=None, hotkey_filter=None, **properties):
         """拿面板输入框控件（第一次调用时创建，之后复用同一个）。
