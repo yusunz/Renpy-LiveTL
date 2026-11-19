@@ -106,6 +106,29 @@ init -90 python:
 
         return list(getattr(node, "block", None) or [])
 
+    def _livetl_engine_node_say_text(node):
+        """从翻译节点里取第一条 Say 的纯文本；没有 Say 时返回 None。
+
+        `what` 是引擎解析字符串后的语义值，说话人、属性和参数都各有独立
+        字段。这里不重新解析源码行，所以 `(color="#84BAEA")` 不会混进译文。
+        """
+        say = _livetl_engine_ast_class("Say")
+
+        if say is None:
+            return None
+
+        for child in _livetl_engine_block_nodes(node):
+            if not isinstance(child, say):
+                continue
+
+            try:
+                return child.what
+            except Exception as e:
+                livetl_engine_note_error("node_say_text", e)
+                return None
+
+        return None
+
     def _livetl_engine_string_table(language):
         """引擎里这个语言的字符串翻译表；取不到返回 None。
 
@@ -169,16 +192,58 @@ init -90 python:
 
     def livetl_engine_source_text(tid):
         """这条 tid 的原文；取不到返回 None。"""
-        say = _livetl_engine_ast_class("Say")
+        return _livetl_engine_node_say_text(_livetl_engine_default_node(tid))
 
-        if say is None:
+    def livetl_engine_translation_text(language, tid):
+        """这条台词在指定语言下已加载的译文；没有登记时返回 None。
+
+        这是面板和搜索的主数据源。它读取的是引擎实际登记的翻译节点，
+        与游戏当前显示的文本遵循同一套 AST 语义；文件里存在但尚未加载、
+        或已被后加载文件覆盖的块不会误当成当前译文。
+        """
+        translator = _livetl_engine_translator()
+
+        if (translator is None) or not tid or (language is None):
             return None
 
-        for n in _livetl_engine_block_nodes(_livetl_engine_default_node(tid)):
-            if isinstance(n, say):
-                return n.what
+        try:
+            key = str(tid).replace(".", "_")
+            node = translator.language_translates.get((key, language))
+        except Exception as e:
+            livetl_engine_note_error("translation_text/table", e)
+            return None
 
-        return None
+        return _livetl_engine_node_say_text(node)
+
+    def livetl_engine_translation_texts(language):
+        """这个语言全部已加载台词的译文：{标识符: Say.what, ...}。
+
+        一次遍历引擎翻译表，避免搜索为几万个标识符逐条进 AST。表里后加载
+        的文件已经覆盖先加载的文件，所以同一个 tid 只需要取当前登记值。
+        """
+        translator = _livetl_engine_translator()
+
+        if (translator is None) or (language is None):
+            return {}
+
+        try:
+            items = list(translator.language_translates.items())
+        except Exception as e:
+            livetl_engine_note_error("translation_texts/table", e)
+            return {}
+
+        rv = {}
+
+        for (identifier, node_language), node in items:
+            if node_language != language:
+                continue
+
+            value = _livetl_engine_node_say_text(node)
+
+            if value is not None:
+                rv[identifier] = value
+
+        return rv
 
     def livetl_engine_source_location(tid):
         """这条 tid 在源码里的位置 (文件名, 行号)；取不到返回 (None, None)。"""
@@ -203,27 +268,6 @@ init -90 python:
                 rv.append("    " + n.get_code(lambda s: text))
             else:
                 rv.append("    " + n.get_code())
-
-        return rv
-
-    def livetl_engine_block_say_indexes(tid):
-        """块内 Say 节点在代码行里的下标；取不到返回 []。
-
-        Ren'Py 会把 say 前面紧跟的 nvl clear / voice 这类 translatable
-        语句并进同一个 translate 块，写进 tl 文件时每个节点一行、只有 Say
-        那一行的文本会被替换成译文。读取 tl 的人要靠这几个下标找译文，
-        不能按"第一条带引号的行"猜 —— voice 的参数也是带引号的字符串，
-        那样会把它读成译文（见 livetl_core.rpy 的块读取）。
-        """
-        say = _livetl_engine_ast_class("Say")
-        rv = []
-
-        if say is None:
-            return rv
-
-        for i, n in enumerate(_livetl_engine_block_nodes(_livetl_engine_default_node(tid))):
-            if isinstance(n, say):
-                rv.append(i)
 
         return rv
 
@@ -717,6 +761,23 @@ init -90 python:
 
         return old in translations
 
+    def livetl_engine_string_translation(old, language):
+        """引擎已加载的字符串翻译表里这条的译文；没有这条返回 None。
+
+        与 livetl_engine_has_string_translation() 读同一张表。值可能是占位原文
+        （new == old）或 None（插件生成期间临时塞的占位），由调用方判断。
+        """
+        translations = _livetl_engine_string_table(language)
+
+        if translations is None:
+            return None
+
+        try:
+            return translations.get(old, None)
+        except Exception as e:
+            livetl_engine_note_error("string_translation", e)
+            return None
+
     def livetl_engine_seed_string_translation(old, language):
         """临时登记一条占位字符串译文。"""
         translations = _livetl_engine_string_table(language)
@@ -893,6 +954,24 @@ init -90 python:
         return True
 
     # ---------------------------------------------------------------------
+    # 契约层：宿主兼容开关
+    # ---------------------------------------------------------------------
+
+    def livetl_engine_menu_text_filter_enabled():
+        """宿主是否还允许菜单/界面文本过 config.say_menu_text_filter。
+
+        Ren'Py 8.6 起新增 config.use_menu_text_filter，置 False 时菜单标题与
+        界面文本不再经过这个过滤函数（对白 Say 路径不受影响）。插件靠这个
+        过滤函数把"空译文"顶回原文，所以宿主关掉它时菜单/界面文本会显示空白。
+        老引擎没有这个开关，等价于开启。
+        """
+        try:
+            return bool(getattr(config, "use_menu_text_filter", True))
+        except Exception as e:
+            livetl_engine_note_error("menu_text_filter/enabled", e)
+            return True
+
+    # ---------------------------------------------------------------------
     # 契约层：字体与文本排版缓存
     # ---------------------------------------------------------------------
 
@@ -1026,10 +1105,11 @@ init -90 python:
             tree = None
 
         return [
-            "engine seam runtime: lookup_translate={} surftree={} translate_nodes={} language={!r}".format(
+            "engine seam runtime: lookup_translate={} surftree={} translate_nodes={} menu_filter={} language={!r}".format(
                 _livetl_engine_lookup_shape(),
                 "yes" if tree is not None else "no",
                 len(livetl_engine_all_translate_ids()),
+                "yes" if livetl_engine_menu_text_filter_enabled() else "no",
                 livetl_engine_current_language(),
             ),
         ]

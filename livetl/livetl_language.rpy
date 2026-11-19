@@ -228,10 +228,6 @@ init -60 python:
         dirs = livetl_language_dirs_of(language)
         return dirs[-1] if dirs else ""
 
-    def livetl_language_exists(language):
-        """磁盘上有没有这个语言的译文块。"""
-        return bool(livetl_language_index().get(str(language or "")))
-
     def livetl_language_files(language):
         """这个语言涉及的 tl 文件（.rpy/.rpym），按加载顺序。"""
         root = livetl_engine_tl_root()
@@ -349,12 +345,6 @@ init -60 python:
         raw = str(livetl_setting_get("language") or livetl_language or "").strip()
         language, _directory, _note = livetl_resolve_language(raw)
         return language or raw
-
-    def livetl_target_dir():
-        """当前目标语言的生效目录（读写落在哪个 tl 子目录里）。"""
-        raw = str(livetl_setting_get("language") or livetl_language or "").strip()
-        _language, directory, _note = livetl_resolve_language(raw)
-        return directory or raw
 
     def livetl_set_language(language):
         """记下这次运行的目标语言（store 镜像 + session，不写文件）。

@@ -736,6 +736,43 @@ style livetl_find_target is default:
     color "#b8b8b8"
 
 
+# ---------------------------------------------------------------------
+# 引擎自绘的输入法候选列表（Ren'Py 8.6+）
+#
+# 8.6 起 Windows 上引擎自己画 IME 候选（_ime_candidates 屏），不再用系统
+# 候选窗；它默认是黑底 + 系统字体，紧贴输入框下方，压在面板按钮行上很突兀。
+# 文档只承诺这些样式可定制（doc/input.html「Input Methods」）：这里把配色、
+# 内外边距和选中底色对齐面板、把占地方压小；字号走 livetl_px()，与面板
+# 使用同一套缩放（见下面的说明）。字体在 init 500 里跟随面板字体。
+# 老引擎没有这个屏，样式块只是多定义几个没人用的样式，无副作用。
+# ---------------------------------------------------------------------
+
+style _ime_candidates_frame:
+    background "#000000d0"
+    padding (livetl_px(6), livetl_px(3))
+
+style _ime_candidates_box:
+    spacing livetl_px(4)
+
+style _ime_candidates_item_frame:
+    background None
+    padding (livetl_px(3), livetl_px(1))
+
+style _ime_candidates_selected_item_frame:
+    background "#ffcc6640"
+
+style _ime_candidates_text:
+    # 字号跟面板走：livetl_px() 内部就是 livetl_ui_scale 优先、否则按画布高度
+    # 自动算（1080p 基准 22 = 引擎默认字号）。不做任何保底或封顶，这样
+    # 720p → 15、1080p → 22、4K → 44，显式改 livetl_ui_scale 也完全生效；
+    # 低分辨率下嫌小就调大 livetl_ui_scale（面板会一起变大）。
+    size livetl_px(22)
+    color "#ffffff"
+
+style _ime_candidates_selected_text:
+    color "#ffcc66"
+
+
 init 500 python:
 
     # 面板上所有显示文字的样式（换字体时一起改）
@@ -774,6 +811,14 @@ init 500 python:
                 getattr(style, name).font = font
         except Exception:
             pass
+
+        # 8.6+ 引擎自绘的输入法候选列表也跟随面板字体（中文候选需要 CJK 字体）。
+        # 老引擎没有这两个样式，逐个 getattr 失败就跳过，不影响上面的面板字体。
+        for name in ("_ime_candidates_text", "_ime_candidates_selected_text"):
+            try:
+                getattr(style, name).font = font
+            except Exception:
+                pass
 
     livetl_apply_panel_font()
 
@@ -905,6 +950,9 @@ init python:
 
         # 启动后的第一次交互做一次重复条目检查（只提示，不改文件）
         livetl_dup_check_startup()
+
+        # 宿主用 8.6 的 use_menu_text_filter 关掉菜单过滤时提示一次
+        livetl_warn_menu_filter_once()
 
         # 面板显示状态以 session 为准：
         # 剧情回退会回滚 store 变量，这里每次交互都同步回来。
