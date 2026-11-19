@@ -41,7 +41,7 @@ init -50 python:
     def livetl_pick_text_key(text):
         """比较用的文本键：去掉文本标签与首尾空白。
 
-        画面上拾取到的是 Text.text_parameter（= 游戏实际显示的文本），目标语言下
+        画面上拾取到的是 Text 替换前的文本（参数里的原文，未翻译），目标语言下
         它已经是译文；而 say 的原文里还带着 {w=0.8} 这类标签。判断"是不是同一句"
         时去掉标签、比较可见文字即可。
         """
@@ -277,6 +277,12 @@ init -50 python:
         index = livetl_scan_string_index()
         places = index.get(text)
 
+        # 译文从引擎已加载的翻译表读（运行时真正显示的值），磁盘索引兜底：
+        # tl 里写法特殊（.rpa / 续行 / 相邻字面量）时行扫描定位不到，但引擎
+        # 认得这条，译文仍然要显示出来。
+        translation = livetl_string_translation(text)
+        known = bool(places) or livetl_string_known(text)
+
         # 菜单还开着时，别让菜单同步把面板抢回去
         livetl_state_set("livetl_menu_hold", True)
 
@@ -286,12 +292,16 @@ init -50 python:
         store.livetl_current_source = text
         store.livetl_input = ""
 
-        if places:
-            best = livetl_best_string_entry(text, places)
+        if known:
             # 生成的模板里未翻译条目的 new 是原文（占位），对译者来说等同于没翻
-            store.livetl_input = livetl_input_text("" if best[2] == text else (best[2] or ""))
-            note = "已拾取字符串条目（已有译文，共 {} 处）".format(len(places)) if len(places) > 1 \
-                else "已拾取字符串条目（已有译文）"
+            store.livetl_input = livetl_input_text("" if translation == text else (translation or ""))
+
+            if places and (len(places) > 1):
+                note = "已拾取字符串条目（已有译文，共 {} 处）".format(len(places))
+            elif places:
+                note = "已拾取字符串条目（已有译文）"
+            else:
+                note = "已拾取字符串条目（已有译文；tl 文件的写法定位不到，只能读不能写）"
         elif text in livetl_string_file_map():
             note = "已拾取（新条目）"
         else:

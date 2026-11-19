@@ -761,6 +761,23 @@ init -90 python:
 
         return old in translations
 
+    def livetl_engine_string_translation(old, language):
+        """引擎已加载的字符串翻译表里这条的译文；没有这条返回 None。
+
+        与 livetl_engine_has_string_translation() 读同一张表。值可能是占位原文
+        （new == old）或 None（插件生成期间临时塞的占位），由调用方判断。
+        """
+        translations = _livetl_engine_string_table(language)
+
+        if translations is None:
+            return None
+
+        try:
+            return translations.get(old, None)
+        except Exception as e:
+            livetl_engine_note_error("string_translation", e)
+            return None
+
     def livetl_engine_seed_string_translation(old, language):
         """临时登记一条占位字符串译文。"""
         translations = _livetl_engine_string_table(language)

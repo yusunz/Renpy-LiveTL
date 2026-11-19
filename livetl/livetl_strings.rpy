@@ -14,9 +14,16 @@ init -50 python:
     import os
     import re
 
-    # tl 文件里的 old / new 行
-    _livetl_old_pattern = re.compile(r'^\s*old\s+"(.*)"\s*$')
-    _livetl_new_pattern = re.compile(r'^\s*new\s+"(.*)"\s*$')
+    # tl 文件里的 old / new 行：匹配一个 Python 字符串字面量，收尾引号后
+    # 允许行尾注释。引擎自己解析这些行用的是 Python eval，行尾注释合法；
+    # 翻译打包器就会在最后一条 new 后面追加 `# TODO: Translation updated ...`。
+    # 旧的正则要求引号后到行尾只有空白，这类条目会整条漏掉（实测：拾取时
+    # 读不到已有译文，被误判成"不在官方扫描范围内"的运行时文本）。
+    #
+    # 第 1 组是字符串内容（保留转义，交给 livetl_unquote 还原）；第 2 组是
+    # 收尾引号后的残留（空白 + 注释），改 new 行时原样保留。
+    _livetl_old_pattern = re.compile(r'^\s*old\s+"((?:[^"\\]|\\.)*)"(\s*(?:#.*)?)$')
+    _livetl_new_pattern = re.compile(r'^\s*new\s+"((?:[^"\\]|\\.)*)"(\s*(?:#.*)?)$')
 
     # 清理重复条目时，这些文件先保留（与 Ren'Py 官方的归属习惯一致）
     _livetl_file_rank = ["common.rpy", "script.rpy", "options.rpy", "gui.rpy", "screens.rpy"]
@@ -247,6 +254,15 @@ init -50 python:
                     old, lineno = pending
                     index.setdefault(old, []).append((rel, lineno, livetl_unquote(m.group(1))))
                     pending = None
+                    continue
+
+                # 解析不了的 old / new（续行、相邻字面量等）与块结束行会打断配对：
+                # 清掉 pending，免得后面某条的 new 被错配到上一条 old 头上。
+                # 空行与注释行不清（引擎允许 old 和 new 之间隔空行/注释）。
+                s = line.strip()
+
+                if s.startswith(("old", "new", "translate ", "label ")):
+                    pending = None
 
         livetl_state_set("livetl_string_index", (language, stamp, index))
         return index
@@ -266,6 +282,59 @@ init -50 python:
 
         # 历史遗留重复时，取"清理时会保留"的那一条，保证读写一致
         return livetl_best_string_entry(key, places)
+
+    def livetl_string_translation(key, language=None):
+        """这条字符串当前生效的译文（读给译者看的值）；没有这条返回 None。
+
+        优先用引擎已经加载的字符串翻译表：那是运行时真正用于显示的值，`.rpa`
+        里的 tl、写法特殊（续行 / 相邻字面量）的条目都在表里，而磁盘行扫描
+        看不到这些位置。表里没有时退回磁盘索引 —— 例如渲染层还没加载该语言。
+
+        占位的原文（new == old）原样返回，由调用方判断"算不算翻过"。
+        """
+        if language is None:
+            language = livetl_target_language()
+
+        if language:
+            value = livetl_engine_string_translation(key, language)
+
+            if value is not None:
+                return value
+
+        found = livetl_lookup_string(key, language)
+
+        if found:
+            return found[2]
+
+        return None
+
+    def livetl_string_known(key, language=None):
+        """引擎翻译表里有没有这条（磁盘索引看不到的条目也能认出来）。"""
+        if language is None:
+            language = livetl_target_language()
+
+        if not language:
+            return False
+
+        return livetl_engine_has_string_translation(key, language)
+
+    def livetl_string_write_blocked(key, language=None):
+        """这条字符串能读、但 tl 文件里定位不到写回位置时返回 True。
+
+        典型来源：`.rpa` 里的 tl、用续行 / 相邻字面量写的条目。此时若按"新条目"
+        追加，会和引擎表里已有的同 old 冲突（引擎启动注册字符串翻译时遇到同
+        old 直接抛异常），所以只读不写。
+        """
+        if language is None:
+            language = livetl_target_language()
+
+        if not language:
+            return False
+
+        if not livetl_engine_has_string_translation(key, language):
+            return False
+
+        return not livetl_scan_string_index(language).get(key)
 
     # ---------------------------------------------------------------------
     # 归属文件（官方规则）
@@ -316,6 +385,12 @@ init -50 python:
         if existing:
             # 已经在某个文件里：就地改它（其它目录里的同一条也会被查重看到）
             rel = livetl_best_string_entry(key, existing)[0]
+        elif livetl_string_write_blocked(key, language):
+            # 引擎表里有这条，但 tl 文件里定位不到（.rpa / 续行 / 相邻字面量）：
+            # 追加一条新的 old 会和引擎表里已有的同 old 冲突，游戏下次启动
+            # 直接抛 "A translation for ... already exists."，所以只读不写。
+            livetl_log("write string: {!r} 在引擎翻译表里但 tl 定位不到（.rpa / 续行 / 相邻字面量），拒绝追加重复条目".format(key))
+            return None
         else:
             rel = "{}/{}".format(directory, livetl_string_file_for(key))
 
@@ -347,14 +422,19 @@ init -50 python:
         wrote = False
 
         for i, line in enumerate(lines):
-            if line.strip() != old_line.strip():
+            # 按"还原后的内容"认 old 行：行尾可能带注释，逐字比较会认不出来
+            matched_old = _livetl_old_pattern.match(line)
+
+            if (matched_old is None) or (livetl_unquote(matched_old.group(1)) != key):
                 continue
 
-            # 这条 old 下面就是它的 new：改掉
+            # 这条 old 下面就是它的 new：改掉（新的行尾注释原样保留）
             j = i + 1
             while j < len(lines):
-                if _livetl_new_pattern.match(lines[j]) is not None:
-                    lines[j] = new_line
+                matched_new = _livetl_new_pattern.match(lines[j])
+
+                if matched_new is not None:
+                    lines[j] = new_line + matched_new.group(2)
                     wrote = True
                     break
 

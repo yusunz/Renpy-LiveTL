@@ -835,17 +835,20 @@ init -50 python:
 
         return rv or None
 
-    def livetl_menu_entry_of(caption, index):
-        """菜单里的一条：原文、已有译文、状态。"""
+    def livetl_menu_entry_of(caption, index, fresh=False):
+        """菜单里的一条：原文、已有译文、状态。
+
+        `fresh` 为真时从磁盘索引读（刚写回、还没重载时用，避免读到引擎表里
+        的旧值）；否则优先读引擎已加载的翻译表，和游戏"真正会显示什么"一致。
+        """
         places = index.get(caption)
 
-        if places:
-            best = livetl_best_string_entry(caption, places)
-            new = best[2]
-            duplicated = len(places) > 1
+        if fresh:
+            new = livetl_best_string_entry(caption, places)[2] if places else ""
         else:
-            new = ""
-            duplicated = False
+            new = livetl_string_translation(caption) or ""
+
+        duplicated = len(places or []) > 1
 
         # 生成的模板里未翻译条目的 new 是原文（占位），对译者来说等同于没翻
         if new == caption:
@@ -984,7 +987,7 @@ init -50 python:
 
         for item in store.livetl_menu_items:
             if item["caption"] == key:
-                fresh = livetl_menu_entry_of(key, index)
+                fresh = livetl_menu_entry_of(key, index, fresh=True)
                 item["new"] = fresh["new"]
                 item["state"] = fresh["state"]
                 item["dup"] = fresh["dup"]
@@ -1135,6 +1138,10 @@ init -50 python:
 
         # 菜单 / 界面字符串：写进 translate <语言> strings 条目
         if (store.livetl_current_kind == "string") and store.livetl_current_key:
+            if livetl_string_write_blocked(store.livetl_current_key):
+                livetl_set_status("这条译文来自引擎翻译表（.rpa / tl 写法特殊），定位不到写回位置，未写入")
+                return
+
             rel = livetl_write_string_entry(store.livetl_current_key, text)
 
             if rel:
@@ -1183,6 +1190,10 @@ init -50 python:
           （空译文会让菜单项变成不可点的空按钮）。
         """
         if (store.livetl_current_kind == "string") and store.livetl_current_key:
+            if livetl_string_write_blocked(store.livetl_current_key):
+                livetl_set_status("这条条目来自引擎翻译表（.rpa / tl 写法特殊），定位不到文件位置，无法删除")
+                return
+
             rel = livetl_delete_string_entry(store.livetl_current_key)
 
             if rel:
