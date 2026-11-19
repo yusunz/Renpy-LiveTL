@@ -68,18 +68,6 @@ init -50 python:
     # 目录与文件
     # ---------------------------------------------------------------------
 
-    def livetl_tl_language_dir(language=None):
-        """这个语言的生效目录（绝对路径）；拿不到时返回 ""。
-
-        语言名与目录名可以不一样（实测有游戏把 translate chinese 放在
-        tl/out/ 里），所以这里问的是"译文实际在哪个 tl 子目录里"，
-        不是简单的 tl/<语言名>。
-        """
-        if language is None:
-            language = livetl_target_language()
-
-        return livetl_language_path(livetl_language_dir_of(language) or language)
-
     def livetl_iter_tl_files(language=None):
         """列出这个语言涉及的翻译文件（.rpy / .rpym，按加载顺序）。
 

@@ -165,13 +165,6 @@ init -50 python:
         """退出拾取模式（取消）。"""
         livetl_pick_set_active(False)
 
-    def livetl_pick_toggle():
-        """快捷键：在拾取模式与普通模式之间切换。"""
-        if store.livetl_pick_active:
-            livetl_pick_exit()
-        else:
-            livetl_pick_enter()
-
     def livetl_pick_confirm():
         """在拾取层上点击：取当前鼠标位置的文本并交给面板。"""
         text, location = livetl_pick_probe()

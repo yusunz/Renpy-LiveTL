@@ -525,12 +525,11 @@ init -50 python:
         """这个语言已经写过的台词标识符（集合）。"""
         return set(livetl_scan_tl_entry_files(language).keys())
 
-    def livetl_scan_tl_entry_texts(language=None, force=False):
+    def livetl_scan_tl_entry_texts(language=None):
         """这个语言实际生效的台词译文：{标识符: Say.what, ...}。
 
-        `force` 为兼容旧调用保留；AST 表本身不需要 mtime 缓存。本次刚写入、
-        尚未重载的值会用 session 里的短期覆盖值补上，保证“写一条、搜一条”
-        能立刻看到新内容。
+        本次刚写入、尚未重载的值会用 session 里的短期覆盖值补上，保证
+        “写一条、搜一条”能立刻看到新内容。
         """
         if language is None:
             language = livetl_target_language()
@@ -836,11 +835,8 @@ init -50 python:
 
         return rv or None
 
-    def livetl_menu_entry_of(caption, index=None):
+    def livetl_menu_entry_of(caption, index):
         """菜单里的一条：原文、已有译文、状态。"""
-        if index is None:
-            index = livetl_scan_string_index()
-
         places = index.get(caption)
 
         if places:
