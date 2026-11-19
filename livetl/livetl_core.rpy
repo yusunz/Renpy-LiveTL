@@ -1064,6 +1064,32 @@ init -50 python:
         if count:
             livetl_set_status("发现 {} 处重复条目，点【设置】→【检查重复】处理".format(count))
 
+    def livetl_warn_menu_filter_once():
+        """宿主关掉菜单文本过滤时提示一次（Ren'Py 8.6+ 才有这个开关）。
+
+        插件把"空译文顶回原文"挂在 config.say_menu_text_filter 上；8.6 起
+        宿主可以用 use_menu_text_filter = False 让菜单/界面文本不再经过它，
+        于是没翻的菜单项会变成空白按钮（对白不受影响）。不改宿主的 config，
+        只在日志和状态栏说清楚原因，免得被当成插件 bug 排查。
+        """
+        if livetl_state_get("livetl_menu_filter_warned"):
+            return
+
+        livetl_state_set("livetl_menu_filter_warned", True)
+
+        if livetl_engine_menu_text_filter_enabled():
+            return
+
+        message = "宿主关闭了 use_menu_text_filter：空译文的菜单/界面文本会显示空白（对白不受影响）"
+
+        livetl_log("host compat: " + message)
+
+        # 启动查重可能已经写过一行状态；追加而不是覆盖，两边都别丢。
+        if store.livetl_status:
+            livetl_set_status(livetl_status + "；" + message)
+        else:
+            livetl_set_status(message)
+
     def livetl_sync(tid=None, force=False):
         """刷新面板内容：当前句的原文，以及已有的译文。
 

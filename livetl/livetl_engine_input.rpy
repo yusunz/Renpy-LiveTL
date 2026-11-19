@@ -34,9 +34,11 @@ init -90 python:
     # 界面时除以 oversample、加排版偏移。
     # 依赖的内部结构：layout.oversample / xoffset / yoffset，
     # layout.lines[*].y / height / glyphs[*].x / advance / character。
-    # 这些在 8.1.1 与 8.5.3 上一致，其中"排版里的字形是内容的一个子序列"
-    # （折行处被丢掉的空白占不到格子，见 _livetl_engine_input_marks）这条假设
-    # 由 livetl_engine_input_probe() 每次运行自检一遍。
+    # 这些在 8.1.1 / 8.5.3 / 8.6.1 上一致，其中"排版里的字形是内容的一个
+    # 子序列"（折行处被丢掉的空白占不到格子，见 _livetl_engine_input_marks）
+    # 这条假设由 livetl_engine_input_probe() 每次运行逐行自检一遍。
+    # 自检必须按行取垂直中心：多行等高时用排版高度的一半会正好落在行边界上，
+    # 把"第二行左端"误报成第一行右端的越界值（8.5.3/8.6.1 都会，与引擎升级无关）。
     #
     # 算不出来时（译文里有图片、表情文字这类"不是字的元素"）返回 None / []，
     # 调用方只挡住这一次点击、不动光标，原因记进 livetl_engine_note_error()。
@@ -638,14 +640,7 @@ init -90 python:
 
         def _livetl_copy_selection(self):
             """把选中的文本放进系统剪贴板。"""
-            try:
-                import pygame
-                pygame.scrap.put(
-                    pygame.scrap.SCRAP_TEXT,
-                    self.livetl_selected_text().encode("utf-8"),
-                )
-            except Exception as e:
-                livetl_engine_note_error("input/copy", e)
+            livetl_engine_input_clipboard_write(self.livetl_selected_text())
 
         def _livetl_word_range(self, index):
             """双击选中的范围：从这个字往两边扩到分隔符为止。"""
@@ -1175,6 +1170,34 @@ init -90 python:
             livetl_engine_note_error("input/source_widget", e)
             return None
 
+    def livetl_engine_input_clipboard_write(text):
+        """把文本写进系统剪贴板；成功返回 True。
+
+        优先用 Ren'Py 8.6 起公开的 renpy.put_clipboard_text()（走 SDL3 的
+        剪贴板接口）；老引擎没有它，回退到 pygame.scrap 这套兼容层。
+        两条路写出来的内容都能被系统剪贴板读到。
+        """
+        try:
+            text = str(text or "")
+        except Exception as e:
+            livetl_engine_note_error("input/clipboard", e)
+            return False
+
+        put_text = getattr(renpy, "put_clipboard_text", None)
+
+        try:
+            if put_text is not None:
+                put_text(text)
+                return True
+
+            import pygame
+
+            pygame.scrap.put(pygame.scrap.SCRAP_TEXT, text.encode("utf-8"))
+            return True
+        except Exception as e:
+            livetl_engine_note_error("input/clipboard", e)
+            return False
+
     def livetl_engine_input_text_input_stop():
         """关掉系统文本输入（输入法不再收按键）；成功返回 True。
 
@@ -1243,30 +1266,87 @@ init -90 python:
     # 面板输入框与原文只读控件的排版假设自检：只在真的画过一次之后报一次
     _livetl_engine_input_probed = False
 
+    # 自检等排版对齐的次数：内容刚换掉时排版可能还是上一份（同步新台词、
+    # 测试里重置输入框），这时先不报，等下一次交互再看；内容没变还对不上时
+    # 立即照报（那才是真的引擎漂移）。
+    _livetl_engine_input_probe_attempts = 0
+    _livetl_engine_input_probe_last_content = None
+
     def _livetl_engine_input_probe_sample(widget):
-        """拿实际排版验一遍坐标换算：横向取几点，下标必须单调不减。"""
-        layout = widget.get_layout()
+        """拿实际排版验一遍坐标换算：逐行取左右两端，检查内容连续性。
+
+        旧实现只用单一 `y = 排版高度/2` 扫全宽。原文行折行后两行等高时，
+        这个 y 正好落在两行边界上，`index_at()` 按"点在行下方算下一行"
+        归到第二行，于是"点第一行左端"被算成第二行首字（实测 8.5.3 与
+        8.6.1 都输出 left=70），把多行原文误报成鼠标定位失败。
+
+        现在逐行走：每行取垂直中心，分别在 x=0 与 x=右端取下标，要求
+          - 第 0 行左端 = 0，最后一行右端 = 内容长度；
+          - 相邻两行：前一行右端 = 后一行左端（中间没有漏掉字符）；
+          - 每行内部左端 ≤ 右端。
+        只有"光标占位符、没有字"的行跳过（折行点上的空行）。
+        """
+        try:
+            layout = widget.get_layout()
+            content = widget.content or ""
+        except Exception as e:
+            livetl_engine_note_error("input/probe_sample", e)
+            return "layout-error"
+
+        if layout is None:
+            return "layout=none"
+
+        length = len(content)
+
+        if not length:
+            return "chars=0"
+
+        marks = _livetl_engine_input_marks(widget)
+
+        if not marks:
+            return "marks=none"
+
         scale = _livetl_engine_input_scale(layout)
         width = float(layout.size[0]) / scale
-        height = float(layout.size[1]) / scale
-        y = height / 2.0
 
-        samples = []
+        rows = []
 
-        for frac in (0.0, 0.25, 0.5, 0.75, 1.0):
-            samples.append(livetl_engine_input_index_at(widget, width * frac, y))
+        for line, items in marks:
+            indexes = [item_index for item_index, _glyph in items if item_index is not None]
 
-        length = len(widget.content or "")
+            if not indexes:
+                # 只放了光标占位符的折行空行：没有可点的字，跳过
+                continue
 
-        if samples[0] != 0:
-            return "left={!r}".format(samples[0])
+            _vx, vy = _livetl_engine_input_to_virtual(
+                layout, 0, line.y + (line.height / 2.0),
+            )
 
-        if samples[-1] != length:
-            return "right={!r}!=chars={}".format(samples[-1], length)
+            left = livetl_engine_input_index_at(widget, 0, vy)
+            right = livetl_engine_input_index_at(widget, width, vy)
 
-        for before, after in zip(samples, samples[1:]):
-            if (before is None) or (after is None) or (after < before):
-                return "not-monotonic={!r}".format(samples)
+            if (left is None) or (right is None):
+                return "none-at-row{}=({!r},{!r})".format(len(rows), left, right)
+
+            if left > right:
+                return "not-monotonic-row{}={!r}>{!r}".format(len(rows), left, right)
+
+            rows.append((left, right))
+
+        if not rows:
+            return "no-rows"
+
+        if rows[0][0] != 0:
+            return "left={!r}".format(rows[0][0])
+
+        if rows[-1][1] != length:
+            return "right={!r}!=chars={}".format(rows[-1][1], length)
+
+        for index in range(1, len(rows)):
+            if rows[index][0] != rows[index - 1][1]:
+                return "row{}: left={!r} != prev-right={!r}".format(
+                    index, rows[index][0], rows[index - 1][1],
+                )
 
         return ""
 
@@ -1303,6 +1383,21 @@ init -90 python:
 
         if (not (widget.content or "")) and (not source_ready):
             return []
+
+        global _livetl_engine_input_probe_attempts
+        global _livetl_engine_input_probe_last_content
+
+        content = widget.content or ""
+        marks = _livetl_engine_input_marks(widget)
+
+        if marks is None:
+            _livetl_engine_input_probe_attempts += 1
+
+            # 内容刚换、排版还没跟上：先不报，等下一次交互；内容没变还对不上
+            # （或者等太多次）就照报，那才是真的"排版与内容对不上"。
+            if (content != _livetl_engine_input_probe_last_content) and (_livetl_engine_input_probe_attempts < 20):
+                _livetl_engine_input_probe_last_content = content
+                return []
 
         _livetl_engine_input_probed = True
 

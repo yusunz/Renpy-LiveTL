@@ -937,6 +937,24 @@ init -90 python:
         return True
 
     # ---------------------------------------------------------------------
+    # 契约层：宿主兼容开关
+    # ---------------------------------------------------------------------
+
+    def livetl_engine_menu_text_filter_enabled():
+        """宿主是否还允许菜单/界面文本过 config.say_menu_text_filter。
+
+        Ren'Py 8.6 起新增 config.use_menu_text_filter，置 False 时菜单标题与
+        界面文本不再经过这个过滤函数（对白 Say 路径不受影响）。插件靠这个
+        过滤函数把"空译文"顶回原文，所以宿主关掉它时菜单/界面文本会显示空白。
+        老引擎没有这个开关，等价于开启。
+        """
+        try:
+            return bool(getattr(config, "use_menu_text_filter", True))
+        except Exception as e:
+            livetl_engine_note_error("menu_text_filter/enabled", e)
+            return True
+
+    # ---------------------------------------------------------------------
     # 契约层：字体与文本排版缓存
     # ---------------------------------------------------------------------
 
@@ -1070,10 +1088,11 @@ init -90 python:
             tree = None
 
         return [
-            "engine seam runtime: lookup_translate={} surftree={} translate_nodes={} language={!r}".format(
+            "engine seam runtime: lookup_translate={} surftree={} translate_nodes={} menu_filter={} language={!r}".format(
                 _livetl_engine_lookup_shape(),
                 "yes" if tree is not None else "no",
                 len(livetl_engine_all_translate_ids()),
+                "yes" if livetl_engine_menu_text_filter_enabled() else "no",
                 livetl_engine_current_language(),
             ),
         ]
