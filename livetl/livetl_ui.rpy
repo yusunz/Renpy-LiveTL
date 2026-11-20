@@ -328,7 +328,7 @@ screen livetl_panel():
 
                     # 语言名是引擎身份，目录只是文件位置：填一个新名字会新建
                     # tl/<语言名>/，点下面已有的语言则翻译它们所在的那个目录。
-                    text "填新名字 = 新建 tl/<语言名>/；点下面已有的语言 = 翻译它，写入它所在的目录。" style "livetl_hint"
+                    text "填写一个新语言名或选择一个语言开始翻译" style "livetl_hint"
 
                     # 语言输入框：和译文输入框用同一个控件（鼠标定位光标、
                     # 拖拽选区、点击不再穿透）；绑成快捷键的按键要让它过路
@@ -347,11 +347,10 @@ screen livetl_panel():
                         textbutton "切回默认" style "livetl_action" action Function(livetl_switch_to_default_language)
                         textbutton "检查重复" style "livetl_action" action Function(livetl_dup_open)
 
-                    # 游戏当前语言与【切回默认】的说明：语言是引擎自己的偏好
-                    # （persistent 的 _preferences.language），点过【切回默认】
-                    # 之后，重启、甚至删掉插件，游戏都停在原文语言。
+                    # 游戏当前语言：语言是引擎自己的偏好
+                    # （persistent 的 _preferences.language）。
                     $ _livetl_game_language = livetl_game_language_text()
-                    text "游戏当前语言：[_livetl_game_language]。翻译结束点【切回默认】：切回原文并记住，之后启动、删掉插件都保持原文；想继续翻译点【开始翻译】。" style "livetl_hint"
+                    text "当前语言：[_livetl_game_language]" style "livetl_hint"
 
                     # 换字体：点按钮出字体列表；也可以把字体文件直接拖进窗口
                     $ _font_display = livetl_font_display_name()
@@ -388,7 +387,7 @@ screen livetl_panel():
                                             selected (_livetl_font_choice["path"] == livetl_font)
                                             action Function(livetl_font_choose, _livetl_font_choice["path"])
                         else:
-                            text "livetl/fonts/ 里没有可用的字体文件" style "livetl_status"
+                            text "livetl/fonts/ 中无可用字体文件" style "livetl_status"
 
                         # 拖放区：方框只是给译者瞄准用的，拖到窗口里就算数
                         frame:
@@ -400,14 +399,20 @@ screen livetl_panel():
 
                         add livetl_font_drop_target
 
-                    # 快捷键：点【改键】再按一个键就能绑上
+                    # 快捷键：点【绑定】再按一个键就能绑上
                     $ _livetl_capture_label = livetl_hotkey_capture_label()
 
                     if _livetl_capture_label:
-                        text "按下要绑给【[_livetl_capture_label]】的键：Esc 取消，退格恢复缺省" style "livetl_status"
+                        # 等待按键时不另起状态行：提示 / 绑定失败都显示在这一行，
+                        # 这样按下按键后变化的就是眼前这一行，面板底部不再重复一条。
+                        if livetl_status:
+                            $ _livetl_capture_status = livetl_escape(livetl_status)
+                            text _livetl_capture_status style "livetl_status"
+                        else:
+                            text "按下要绑给【[_livetl_capture_label]】的键：Esc 取消，退格清除" style "livetl_status"
                     else:
                         text "快捷键" style "livetl_source"
-                        text "字母和数字要留给输入框打字，绑的时候请用功能键，或者加 Ctrl / Alt / Shift" size livetl_px(16) style "livetl_source"
+                        text "纯字母和数字不可用，请用功能键或加 Ctrl / Alt / Shift" size livetl_px(16) style "livetl_source"
 
                         for _livetl_hotkey_row in livetl_hotkey_rows():
                             hbox:
@@ -415,18 +420,19 @@ screen livetl_panel():
 
                                 text "    [_livetl_hotkey_row[1]]" style "livetl_source" xsize livetl_px(200)
                                 text "[_livetl_hotkey_row[2]]" style "livetl_source" xsize livetl_px(90)
-                                textbutton "改键":
+                                textbutton "绑定":
                                     style "livetl_action"
                                     action Function(livetl_hotkey_capture_start, _livetl_hotkey_row[0])
                                 textbutton "清除":
                                     style "livetl_action"
                                     action Function(livetl_hotkey_clear_row, _livetl_hotkey_row[0])
 
-                    # 捕获层：点了【改键】之后由它接住下一个按键
+                    # 捕获层：点了【绑定】之后由它接住下一个按键
                     add livetl_hotkey_capture_target
 
-                    # 设置界面也要有反馈：否则点【检查重复】之类的操作看不到结果
-                    if livetl_status:
+                    # 设置界面也要有反馈：否则点【检查重复】之类的操作看不到结果。
+                    # 正在等按键时不重复显示：提示 / 错误已经在快捷键区那一行。
+                    if livetl_status and (not _livetl_capture_label):
                         $ _livetl_status_escaped = livetl_escape(livetl_status)
                         text _livetl_status_escaped style "livetl_status"
 
@@ -495,7 +501,7 @@ screen livetl_panel():
 # -----------------------------------------------------------------------------
 
 screen livetl_language_list():
-    # 设置页里的"tl 目录下已有"列表。
+    # 设置页里的"已有语言"列表。
     #
     # 单独一个 screen：设置页本身已经很长（语言、字体、快捷键），列表再长一级
     # 会把缩进撑得很难读；`use` 进来以后设置页那一行只管位置。
@@ -504,7 +510,7 @@ screen livetl_language_list():
     $ _livetl_language_rows = livetl_language_rows()
 
     if _livetl_language_rows:
-        text "tl 目录下已有（点一下选它）：" style "livetl_hint"
+        text "已有语言：" style "livetl_hint"
 
         viewport:
             ymaximum livetl_px(livetl_menu_list_height)
@@ -521,7 +527,7 @@ screen livetl_language_list():
                         style "livetl_menu_item"
                         action Function(livetl_language_pick, _livetl_language_name)
     else:
-        text "tl 目录下还没有翻译。" style "livetl_hint"
+        text "已有语言：" style "livetl_hint"
 
 
 # -----------------------------------------------------------------------------
@@ -653,7 +659,7 @@ screen livetl_menu_body():
 screen livetl_dup_body():
 
     if not livetl_dup_report:
-        text "没有发现重复条目" style "livetl_source"
+        text "未发现重复条目" style "livetl_source"
     else:
         text "同一语言下重复的字符串条目会让游戏启动报错，建议清理：" style "livetl_source"
 

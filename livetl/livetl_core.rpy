@@ -1009,7 +1009,7 @@ init -50 python:
         if store.livetl_dup_report:
             livetl_set_status("发现 {} 处重复条目".format(len(store.livetl_dup_report)))
         else:
-            livetl_set_status("没有发现重复条目")
+            livetl_set_status("未发现重复条目")
 
         return len(store.livetl_dup_report)
 
@@ -1041,10 +1041,10 @@ init -50 python:
         count, backup = livetl_clean_duplicate_strings()
 
         if count:
-            livetl_set_status("已清理 {} 条重复条目（备份：{}），按重载生效".format(
+            livetl_set_status("已清理 {} 条重复条目（备份：{}），重载生效".format(
                 count, os.path.basename(backup) if backup else "无"))
         else:
-            livetl_set_status("没有需要清理的条目")
+            livetl_set_status("无需要清理的条目")
 
         livetl_dup_scan(switch=False)
 
@@ -1065,7 +1065,7 @@ init -50 python:
             return
 
         if count:
-            livetl_set_status("发现 {} 处重复条目，点【设置】→【检查重复】处理".format(count))
+            livetl_set_status("发现 {} 处重复条目，前往【设置】→【检查重复】处理".format(count))
 
     def livetl_warn_menu_filter_once():
         """宿主关掉菜单文本过滤时提示一次（Ren'Py 8.6+ 才有这个开关）。
@@ -1083,7 +1083,7 @@ init -50 python:
         if livetl_engine_menu_text_filter_enabled():
             return
 
-        message = "宿主关闭了 use_menu_text_filter：空译文的菜单/界面文本会显示空白（对白不受影响）"
+        message = "宿主关闭了 use_menu_text_filter：空译文的菜单/界面文本会显示空白"
 
         livetl_log("host compat: " + message)
 
@@ -1133,19 +1133,19 @@ init -50 python:
         text = livetl_unescape_input(store.livetl_input)
 
         if not text.strip():
-            livetl_set_status("输入框是空的，没有写入")
+            livetl_set_status("输入框为空，无法写入")
             return
 
         # 菜单 / 界面字符串：写进 translate <语言> strings 条目
         if (store.livetl_current_kind == "string") and store.livetl_current_key:
             if livetl_string_write_blocked(store.livetl_current_key):
-                livetl_set_status("这条译文来自引擎翻译表（.rpa / tl 写法特殊），定位不到写回位置，未写入")
+                livetl_set_status("此译文来自引擎翻译表，只读，无法写入")
                 return
 
             rel = livetl_write_string_entry(store.livetl_current_key, text)
 
             if rel:
-                livetl_set_status("已写入 tl/{}（按重载生效）".format(rel))
+                livetl_set_status("已写入 tl/{}，重载生效".format(rel))
                 livetl_menu_refresh()
                 livetl_find_after_write()
             else:
@@ -1161,14 +1161,14 @@ init -50 python:
             tid = livetl_current_id()
 
         if not tid:
-            livetl_set_status("当前没有可翻译的台词")
+            livetl_set_status("当前无可翻译的台词")
             return
 
         path = livetl_write_entry(livetl_target_language(), tid, text)
         if path:
             livetl_invalidate_tl_indexes()
             livetl_find_after_write()
-            livetl_set_status("已写入 tl/{}（按重载生效）".format(
+            livetl_set_status("已写入 tl/{}，重载生效".format(
                 os.path.relpath(path, livetl_engine_tl_root()).replace("\\", "/"),
             ))
         else:
@@ -1191,7 +1191,7 @@ init -50 python:
         """
         if (store.livetl_current_kind == "string") and store.livetl_current_key:
             if livetl_string_write_blocked(store.livetl_current_key):
-                livetl_set_status("这条条目来自引擎翻译表（.rpa / tl 写法特殊），定位不到文件位置，无法删除")
+                livetl_set_status("此条目来自引擎翻译表，只读，无法删除")
                 return
 
             rel = livetl_delete_string_entry(store.livetl_current_key)
@@ -1202,7 +1202,7 @@ init -50 python:
                 livetl_menu_refresh()
                 livetl_find_after_write()
             else:
-                livetl_set_status("没有找到可删除的条目")
+                livetl_set_status("未找到可删除的条目")
 
             return
 
@@ -1213,7 +1213,7 @@ init -50 python:
             tid = livetl_current_id()
 
         if not tid:
-            livetl_set_status("当前没有可清空的台词")
+            livetl_set_status("当前无可清空的台词")
             return
 
         path = livetl_write_entry(livetl_target_language(), tid, "")
@@ -1222,7 +1222,7 @@ init -50 python:
             livetl_invalidate_tl_indexes()
             livetl_find_after_write()
             store.livetl_input = ""
-            livetl_set_status("已清空这一句的译文（按重载生效）")
+            livetl_set_status("已清空此条译文，重载生效")
         else:
             livetl_set_status("清空失败，详见 livetl.log")
 

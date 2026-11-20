@@ -63,7 +63,7 @@ init -60 python:
 
     def livetl_language_hint():
         """语言名不合法时给译者看的一句话。"""
-        return "目标语言只能用字母、数字、下划线，且不能以数字开头（例如 schinese）；None 是引擎保留名"
+        return "语言名只能用字母、数字、下划线，且非数字开头、非None"
 
     # ---------------------------------------------------------------------
     # 磁盘上的事实：tl 下有哪些目录、哪些语言、各自出现在哪些目录里
@@ -283,7 +283,7 @@ init -60 python:
             return "", "", ""
 
         if name in _livetl_language_reserved:
-            return "", "", "None 是引擎的保留语言名（代表默认语言），不能当目标语言"
+            return "", "", "None不可为语言名"
 
         if _livetl_language_pattern.match(name) is None:
             return "", "", livetl_language_hint()
@@ -297,7 +297,7 @@ init -60 python:
         similar = sorted(lang for lang in index if lang.lower() == lowered)
 
         if len(similar) > 1:
-            return "", "", "磁盘上同时存在 {}（引擎区分大小写，这是不同的语言），请在列表里选一个".format(
+            return "", "", "同时存在 {}，请选择一个".format(
                 "、".join(similar),
             )
 
@@ -306,12 +306,12 @@ init -60 python:
             other_dir = livetl_language_dir_of(other)
 
             if livetl_same_dir(livetl_language_path(name), livetl_language_path(other_dir)):
-                return other, other_dir, "已有 tl/{}/（translate {}）；这台机器上它与 {} 是同一个目录，按已有的语言名用它".format(
-                    other_dir, other, name,
+                return other, other_dir, "已有 tl/{}/（translate {}），按已有的语言名加载".format(
+                    other_dir, other,
                 )
 
             # 大小写敏感的文件系统上它们能各自存在，那就按官方规则新建
-            return name, name, "注意：磁盘上还有一个只差大小写的语言 {}（tl/{}/）".format(other, other_dir)
+            return name, name, "注意：磁盘上还有一个只差大小写的 {}".format(other)
 
         if os.path.isdir(livetl_language_path(name)):
             # tl/<名字>/ 已经存在（可能是人手建的目录）：按官方规则，新译文就
@@ -323,7 +323,7 @@ init -60 python:
             note = ""
 
             if others:
-                note = "tl/{}/ 里已经有 {} 的译文，会另起一套 translate {} 写进同一批文件".format(
+                note = "tl/{}/ 里已有 {} 的译文，会在同文件中写入{}".format(
                     name, "、".join(others), name,
                 )
 
@@ -497,10 +497,7 @@ init -60 python:
 
         store.livetl_language_input = resolved
 
-        message = "已选 {}：翻译将写入 tl/{}/，点【开始翻译】继续".format(resolved, directory)
-
-        if note:
-            message += "（{}）".format(note)
+        message = "已选 {}：翻译将写入 tl/{}/".format(resolved, directory)
 
         livetl_set_status(message)
         return None

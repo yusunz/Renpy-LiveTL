@@ -366,12 +366,12 @@ init -50 python:
     def livetl_font_use(rel_path):
         """换字体：改配置（先备份）+ 立即生效，结果写进状态栏。"""
         if not rel_path:
-            livetl_set_status("没有选中字体，未做改动")
+            livetl_set_status("未选中字体")
             return False
 
         # 配置里是写成字符串的，这两种字符会让配置语法坏掉
         if '"' in rel_path or "\n" in rel_path or "\r" in rel_path:
-            livetl_set_status("字体文件名里有引号或换行，写不进配置：{}".format(rel_path))
+            livetl_set_status("字体文件名中存在引号或换行，无法写入配置：{}".format(rel_path))
             return False
 
         if not renpy.loadable(rel_path):
@@ -398,7 +398,7 @@ init -50 python:
 
         note = "（{}）".format("；".join(notes)) if notes else ""
 
-        livetl_set_status("字体已换成 {}{}".format(rel_path, note))
+        livetl_set_status("字体已替换 {}{}".format(rel_path, note))
         livetl_log("font switched: {!r} {}".format(rel_path, note))
 
         return True
@@ -412,7 +412,7 @@ init -50 python:
         "回退（Back）"就会把配置里的旧字体镜像回 store。
         """
         if not livetl_font:
-            livetl_set_status("已经是游戏原字体（livetl_font 留空），没有改动")
+            livetl_set_status("已是游戏原字体")
             return False
 
         backup, error = livetl_config_set_font("", path=path)
@@ -432,7 +432,7 @@ init -50 python:
 
         note = "（{}）".format("；".join(notes)) if notes else ""
 
-        livetl_set_status("已改回游戏原字体（livetl_font 留空）{}".format(note))
+        livetl_set_status("已应用游戏原字体")
         livetl_log("font switched to game fonts {}".format(note))
 
         return True
@@ -442,7 +442,7 @@ init -50 python:
         rel_path, error = livetl_font_import(path)
 
         if error:
-            livetl_set_status("拖入的字体没用上：{}".format(error))
+            livetl_set_status("字体应用失败：{}".format(error))
             livetl_log("font drop rejected: {} ({!r})".format(error, path))
             return False
 

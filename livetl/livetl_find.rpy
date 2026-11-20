@@ -252,7 +252,7 @@ init -50 python:
     def livetl_find_open():
         """打开搜索页（折叠时先展开）。"""
         if livetl_need_setup():
-            livetl_set_status("先选定目标语言，再用【搜索】")
+            livetl_set_status("请先选定目标语言")
             return
 
         if store.livetl_pick_active:
@@ -493,7 +493,7 @@ init -50 python:
                 text = text[:20] + "…"
 
             # 与结果行同一条规则：先截断、再转义（截断切坏 {{ 会留下裸 {）
-            return "没有匹配「{}」的条目".format(livetl_escape(text))
+            return "无匹配「{}」的条目".format(livetl_escape(text))
 
         if shown < total:
             return "共 {} 条，显示前 {}".format(total, shown)

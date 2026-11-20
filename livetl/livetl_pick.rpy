@@ -90,8 +90,8 @@ init -50 python:
                 return ("say", source, tid)
 
         for i, item in enumerate(store.livetl_menu_items):
-            if livetl_pick_same_text(item.get("caption"), text) \
-                    or livetl_pick_same_text(item.get("new"), text):
+            if (livetl_pick_same_text(item.get("caption"), text)
+                    or livetl_pick_same_text(item.get("new"), text)):
                 return ("menu", item.get("caption") or text, i)
 
         return None
@@ -233,15 +233,13 @@ init -50 python:
             kinds = livetl_pick_describe()
 
             if "输入框" in kinds:
-                livetl_set_status(
-                    "这里是输入框（不是文本）：它显示的内容由代码拼出来，"
-                    "要翻的是 tl 的 strings 条目里对应的那句模板")
+                livetl_set_status("这里是输入框（不可拾取）")
             elif "按钮" in kinds:
-                livetl_set_status("这个按钮上没有文字（图标/图片按钮），拾取不到")
+                livetl_set_status("这里没有文字，无法拾取")
             elif "文本" in kinds:
-                livetl_set_status("这个文本是动态生成的，拿不到可翻译的原文")
+                livetl_set_status("此为动态生成文本，不可拾取")
             else:
-                livetl_set_status("这里没有可翻译的文本")
+                livetl_set_status("此处无可翻译的文本")
 
             return
 
@@ -262,7 +260,7 @@ init -50 python:
             # 只靠 tid 判断会以为"没变化"而跳过。
             livetl_sync(force=True)
 
-            livetl_set_status("这是对话文本，已在面板里打开；点【回菜单】回到菜单列表")
+            livetl_set_status("此为对话文本，已打开")
             return
 
         if resolved and (resolved[0] == "menu"):
@@ -270,7 +268,7 @@ init -50 python:
             store.livetl_mode = "menu"
             livetl_menu_fill()
             livetl_pick_set_active(False)
-            livetl_set_status("已拾取菜单里的第 {} 条".format(resolved[2] + 1))
+            livetl_set_status("已拾取菜单中的第 {} 条".format(resolved[2] + 1))
             return
 
         # 其它字符串条目：单条编辑模式
@@ -301,11 +299,11 @@ init -50 python:
             elif places:
                 note = "已拾取字符串条目（已有译文）"
             else:
-                note = "已拾取字符串条目（已有译文；tl 文件的写法定位不到，只能读不能写）"
+                note = "已拾取字符串条目（文件为只读，不可写）"
         elif text in livetl_string_file_map():
-            note = "已拾取（新条目）"
+            note = "已拾取"
         else:
-            note = "已拾取（这条不在官方扫描范围内，写入 strings.rpy；动态拼接的文本不会生效）"
+            note = "已拾取（非官方文本，写入strings.rpy）"
 
         livetl_pick_set_active(False)
         livetl_set_status(note)

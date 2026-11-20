@@ -137,16 +137,16 @@ init -20 python:
         suffix = "（{}）".format("；".join(notes)) if notes else ""
 
         if added > 0:
-            livetl_set_status("tl/{}/ 已补全：新增 {} 条，按【重载】生效{}".format(directory, added, suffix))
+            livetl_set_status("tl/{}/ 已补全：新增 {} 条，【重载】生效{}".format(directory, added, suffix))
         else:
-            livetl_set_status("tl/{}/ 已是最新，没有要补的条目{}".format(directory, suffix))
+            livetl_set_status("tl/{}/ 已是最新{}".format(directory, suffix))
 
         livetl_log("setup: incremental generate for {!r} (tl/{}/, {} files, {} new)".format(
             language, directory, count, added,
         ))
 
     def livetl_game_language_text():
-        """设置界面显示的"游戏当前语言"；默认语言时是"默认（原文）"。"""
+        """设置界面显示的当前游戏语言；默认语言时是"默认（原文）"。"""
         language = livetl_engine_current_language()
         return language if language else "默认（原文）"
 
@@ -180,12 +180,9 @@ init -20 python:
             livetl_log("font re-apply after switching to default failed: {!r}".format(e))
 
         if previous is None:
-            livetl_set_status("游戏本来就是默认语言（原文），没有要切的")
+            livetl_set_status("游戏已是默认语言")
         else:
-            livetl_set_status(
-                "已切回默认语言（原文）：{} 的译文不再生效。这个选择记在游戏偏好里，"
-                "之后启动、删掉插件都保持原文，想继续翻译点【开始翻译】".format(previous),
-            )
+            livetl_set_status("已切回默认语言")
 
         return None
 
@@ -235,12 +232,12 @@ init -20 python:
         # 以为"返回之后译文怎么不生效"——返回不切语言，切语言是【开始翻译】
         if livetl_engine_current_language() != livetl_target_language():
             livetl_set_status(
-                "已返回，没有补全模板。游戏当前语言：{}；想继续翻译点【开始翻译】".format(
+                "已返回，未补全模板。游戏当前语言：{}".format(
                     livetl_game_language_text(),
                 ),
             )
         else:
-            livetl_set_status("已返回，没有补全模板；要补全点【开始翻译】")
+            livetl_set_status("已返回，未补全模板")
 
         livetl_log("setup close (no changes)")
         livetl_restart()
