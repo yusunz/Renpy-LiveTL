@@ -210,7 +210,7 @@ init -50 python:
                 return False, "{} 要留给输入框和游戏，请换一个键".format(livetl_hotkey_label(keysym))
 
             if key.startswith("K_") and len(key) == 3 and key[2].isalnum():
-                return False, "字母和数字要留给输入框打字，请用功能键，或者加上 Ctrl / Alt / Shift"
+                return False, "纯字母和数字不可用，请用功能键或加 Ctrl / Alt / Shift"
 
             if not key.startswith("K_"):
                 return False, "这个键要留给输入框；要绑就得写成 K_ 开头的键名"
@@ -649,9 +649,9 @@ init -50 python:
         ]
 
     def livetl_hotkey_capture_start(action):
-        """点【改键】：进入捕获态，等下一个按键。"""
+        """点【绑定】：进入捕获态，等下一个按键。"""
         livetl_hotkey_capture_set(action)
-        livetl_set_status("请按下要绑给【{}】的键：Esc 取消，退格改成不绑定".format(
+        livetl_set_status("按下要绑给【{}】的键：Esc 取消，退格清除".format(
             livetl_hotkey_action_label(action)))
         livetl_log("hotkey capture start: {}".format(action))
         livetl_restart()
@@ -664,7 +664,7 @@ init -50 python:
         if not ok:
             livetl_set_status("清除失败：{}".format(note))
         else:
-            message = "【{}】已改成不绑定".format(livetl_hotkey_action_label(action))
+            message = "【{}】已解除绑定".format(livetl_hotkey_action_label(action))
 
             if note:
                 message += "（{}）".format(note)
@@ -713,7 +713,7 @@ init -50 python:
             # 取消改键：不会再有文本跟来，别让记号留到译者之后的输入上
             livetl_hotkey_text_clear()
             livetl_hotkey_capture_set("")
-            livetl_set_status("已取消改键")
+            livetl_set_status("已取消绑定")
             livetl_restart()
             return True
 
@@ -724,7 +724,7 @@ init -50 python:
 
         if livetl_hotkey_split(keysym)[1] in _livetl_hotkey_modifier_keys:
             # 只按住修饰键不算一个键：留在这个状态里等后面那个真正的键
-            livetl_set_status("Ctrl / Alt / Shift 本身不能绑：请按住它再按一个键，Esc 取消")
+            livetl_set_status("纯Ctrl / Alt / Shift 不可用：请按住再按一个键，Esc 取消")
             livetl_restart()
             return True
 
@@ -732,7 +732,7 @@ init -50 python:
 
         if ok:
             livetl_hotkey_capture_set("")
-            message = "【{}】已绑到 {}".format(livetl_hotkey_action_label(action), livetl_hotkey_label(keysym))
+            message = "{}已绑定【{}】".format(livetl_hotkey_label(keysym), livetl_hotkey_action_label(action))
 
             if note:
                 message += "（{}）".format(note)
@@ -740,7 +740,7 @@ init -50 python:
             livetl_set_status(message)
         else:
             # 绑失败时留在捕获态，译者可以直接再按一个键
-            livetl_set_status("不能绑 {}：{}".format(livetl_hotkey_label(keysym), note))
+            livetl_set_status("绑定失败 {}：{}".format(livetl_hotkey_label(keysym), note))
 
         livetl_restart()
         return True
